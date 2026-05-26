@@ -40,6 +40,13 @@ python3 -m venv .venv
 ~/.agents/skills/a-stock-investment/
 ```
 
+首次触发时，如果本机还没有可用的 `stock-assistant`，Skill 会运行自带的 bootstrap 脚本，自动完成：
+
+- 获取项目代码
+- 创建 `.venv`
+- 安装 Python 依赖
+- 验证 CLI 是否可运行
+
 这个 Skill 的触发不是靠死板关键词，而是靠 `SKILL.md` frontmatter 里的语义描述。用户可以直接问：
 
 ```text

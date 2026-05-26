@@ -7,6 +7,8 @@ TARGET_DIR="$TARGET_ROOT/a-stock-investment"
 
 mkdir -p "$TARGET_DIR"
 cp "$ROOT_DIR/skills/a-stock-investment/SKILL.md" "$TARGET_DIR/SKILL.md"
+rm -rf "$TARGET_DIR/scripts"
+cp -R "$ROOT_DIR/skills/a-stock-investment/scripts" "$TARGET_DIR/scripts"
 
 echo "Installed a-stock-investment skill to: $TARGET_DIR"
-echo "Install the CLI with: cd $ROOT_DIR && python3 -m venv .venv && .venv/bin/python -m pip install -e ."
+echo "The skill will bootstrap the CLI on first use if needed."

@@ -5,15 +5,24 @@ description: A 股投资研究与决策辅助 Skill。Use this whenever the user
 
 # A 股投资分析决策助手
 
-This skill turns natural-language A 股 research requests into calls to the local `stock-assistant` CLI in the project repository.
+This skill turns natural-language A 股 research requests into calls to the local `stock-assistant` CLI. On first use, bootstrap the CLI automatically if it is not available.
 
-Use the project root:
+## First-use Bootstrap
+
+Before running an analysis command, locate the CLI in this order:
+
+1. If `/Users/ccdemac/DevProjs/a-stock-investment/.venv/bin/stock-assistant` exists, use it.
+2. If `$HOME/.a-stock-investment/.venv/bin/stock-assistant` exists, use it.
+3. If `stock-assistant` exists on `PATH`, use it.
+4. Otherwise run this skill's bundled setup script from the skill directory:
 
 ```bash
-cd /Users/ccdemac/DevProjs/a-stock-investment
+bash scripts/bootstrap.sh
 ```
 
-Prefer `.venv/bin/stock-assistant` when it exists; otherwise use `stock-assistant`.
+The bootstrap script clones/uses the project, creates `.venv`, installs dependencies with `pip install -e .`, and verifies `stock-assistant --help`.
+
+After bootstrap, prefer the printed `CLI=...` path for all commands.
 
 ## Intent Routing
 
@@ -44,11 +53,11 @@ Always make the answer useful for investment research, not automatic trading:
 ## Common Commands
 
 ```bash
-.venv/bin/stock-assistant close-review --live
-.venv/bin/stock-assistant morning --live
-.venv/bin/stock-assistant analyze 002415 --mode standard --live
-.venv/bin/stock-assistant analyze 002415 --mode deep --live
-.venv/bin/stock-assistant industry AI算力
-.venv/bin/stock-assistant data report 002415 --profile quick
-.venv/bin/stock-assistant knowledge ingest 603019 --source news --live
+$CLI close-review --live
+$CLI morning --live
+$CLI analyze 002415 --mode standard --live
+$CLI analyze 002415 --mode deep --live
+$CLI industry AI算力
+$CLI data report 002415 --profile quick
+$CLI knowledge ingest 603019 --source news --live
 ```
