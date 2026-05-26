@@ -28,74 +28,130 @@ class MarketSentimentAnalyzer:
         snapshot: Dict[str, Any],
         sectors: pd.DataFrame,
         news: List[Dict[str, Any]] | None = None,
+        concepts: pd.DataFrame | None = None,
     ) -> Dict[str, Any]:
         news = news or []
-        score = 50.0
+        concepts = concepts if concepts is not None else pd.DataFrame()
         factors: List[str] = []
-
-        index_score, index_factor = self._score_indices(snapshot.get("indices", []))
-        score += index_score
-        factors.append(index_factor)
-
-        north_score, north_factor = self._score_northbound(snapshot.get("northbound", {}))
-        score += north_score
-        factors.append(north_factor)
-
-        sector_score, sector_factor = self._score_sectors(sectors)
-        score += sector_score
-        factors.append(sector_factor)
+        components = [
+            self._score_indices(snapshot.get("indices", [])),
+            self._score_liquidity(snapshot),
+            self._score_northbound(snapshot.get("northbound", {})),
+            self._score_sectors(sectors),
+            self._score_concepts(concepts),
+        ]
+        for component in components:
+            factors.append(component["signal"])
 
         news_result = self._score_news(news)
-        score += news_result["score_delta"]
+        components.append(news_result["component"])
         factors.extend(news_result["factors"])
 
+        score = sum(component["score"] for component in components)
         bounded = round(max(0, min(100, score)), 1)
         return {
             "sentiment_score": bounded,
             "level": self._level(bounded),
+            "components": components,
             "factors": factors,
             "news_radar": news_result["radar"],
             "rumors": news_result["rumors"],
-            "confidence": self._confidence(snapshot, sectors, news),
+            "confidence": self._confidence(snapshot, sectors, news, concepts),
         }
 
-    def _score_indices(self, indices: List[Dict[str, Any]]) -> tuple[float, str]:
+    def _score_indices(self, indices: List[Dict[str, Any]]) -> Dict[str, Any]:
+        weight = 20.0
         if not indices:
-            return 0.0, "指数数据缺失，情绪按中性处理"
+            return self._component("指数表现", weight / 2, weight, "指数数据缺失，按中性处理")
         pct_values = [self._to_float(item.get("pct_chg")) for item in indices]
         avg_pct = sum(pct_values) / len(pct_values)
         up = sum(1 for value in pct_values if value > 0)
         down = sum(1 for value in pct_values if value < 0)
-        delta = avg_pct * 4 + (up - down) * 1.5
-        return delta, f"指数平均涨跌幅 {round(avg_pct, 2)}%，上涨指数 {up} 个、下跌指数 {down} 个"
+        breadth = up / len(pct_values)
+        pct_score = self._scale(avg_pct, -2.0, 2.0) * 12
+        breadth_score = breadth * 8
+        score = max(0, min(weight, pct_score + breadth_score))
+        return self._component(
+            "指数表现",
+            score,
+            weight,
+            f"指数平均涨跌幅 {round(avg_pct, 2)}%，上涨指数 {up} 个、下跌指数 {down} 个",
+        )
 
-    def _score_northbound(self, northbound: Dict[str, Any]) -> tuple[float, str]:
+    def _score_liquidity(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        weight = 15.0
+        total_yi = self._to_float(snapshot.get("total_amount")) / 100000000
+        if total_yi <= 0:
+            return self._component("量能流动性", weight / 2, weight, "成交额数据缺失，按中性处理")
+        if total_yi >= 20000:
+            score = 14.0
+            signal = f"主要指数合计成交额 {round(total_yi, 1)} 亿，流动性活跃"
+        elif total_yi >= 12000:
+            score = 11.0
+            signal = f"主要指数合计成交额 {round(total_yi, 1)} 亿，量能尚可"
+        elif total_yi >= 8000:
+            score = 8.0
+            signal = f"主要指数合计成交额 {round(total_yi, 1)} 亿，量能中性"
+        else:
+            score = 5.0
+            signal = f"主要指数合计成交额 {round(total_yi, 1)} 亿，量能偏弱"
+        return self._component("量能流动性", score, weight, signal)
+
+    def _score_northbound(self, northbound: Dict[str, Any]) -> Dict[str, Any]:
+        weight = 15.0
         net_yi = self._to_float(northbound.get("net_inflow")) / 100000000
+        if not northbound:
+            return self._component("北向资金", weight / 2, weight, "北向资金缺失，按中性处理")
         if net_yi >= 50:
-            return 8.0, f"北向资金大幅净流入 {round(net_yi, 2)} 亿"
-        if net_yi >= 10:
-            return 4.0, f"北向资金净流入 {round(net_yi, 2)} 亿"
-        if net_yi <= -50:
-            return -8.0, f"北向资金大幅净流出 {round(net_yi, 2)} 亿"
-        if net_yi <= -10:
-            return -4.0, f"北向资金净流出 {round(net_yi, 2)} 亿"
-        return 0.0, f"北向资金小幅波动 {round(net_yi, 2)} 亿"
+            score = 14.0
+        elif net_yi >= 10:
+            score = 11.0
+        elif net_yi <= -50:
+            score = 2.0
+        elif net_yi <= -10:
+            score = 5.0
+        else:
+            score = 8.0
+        return self._component("北向资金", score, weight, f"北向资金净流入 {round(net_yi, 2)} 亿")
 
-    def _score_sectors(self, sectors: pd.DataFrame) -> tuple[float, str]:
+    def _score_sectors(self, sectors: pd.DataFrame) -> Dict[str, Any]:
+        weight = 20.0
         if sectors.empty or "pct_chg" not in sectors:
-            return 0.0, "板块数据缺失，情绪按中性处理"
+            return self._component("板块扩散", weight / 2, weight, "板块数据缺失，按中性处理")
         pct = pd.to_numeric(sectors["pct_chg"], errors="coerce").dropna()
         if pct.empty:
-            return 0.0, "板块涨跌数据缺失，情绪按中性处理"
+            return self._component("板块扩散", weight / 2, weight, "板块涨跌数据缺失，按中性处理")
         strong = int((pct > 1).sum())
         weak = int((pct < -1).sum())
-        delta = (strong - weak) * 1.5 + float(pct.mean()) * 2
-        return delta, f"强势板块 {strong} 个、弱势板块 {weak} 个，板块平均涨跌幅 {round(float(pct.mean()), 2)}%"
+        positive_ratio = float((pct > 0).sum()) / len(pct)
+        mean_score = self._scale(float(pct.mean()), -2.0, 2.0) * 8
+        diffusion_score = positive_ratio * 8
+        strong_weak_score = max(0, min(4, 2 + (strong - weak) * 0.8))
+        score = max(0, min(weight, mean_score + diffusion_score + strong_weak_score))
+        return self._component(
+            "板块扩散",
+            score,
+            weight,
+            f"强势板块 {strong} 个、弱势板块 {weak} 个，板块平均涨跌幅 {round(float(pct.mean()), 2)}%",
+        )
+
+    def _score_concepts(self, concepts: pd.DataFrame) -> Dict[str, Any]:
+        weight = 10.0
+        if concepts.empty:
+            return self._component("题材热度", weight / 2, weight, "题材热度数据缺失，按中性处理")
+        heat = pd.to_numeric(concepts.get("heat", pd.Series(dtype=float)), errors="coerce").dropna()
+        pct = pd.to_numeric(concepts.get("pct_chg", pd.Series(dtype=float)), errors="coerce").dropna()
+        heat_score = self._scale(float(heat.mean()) if not heat.empty else 50, 0, 100) * 5
+        pct_score = self._scale(float(pct.mean()) if not pct.empty else 0, -3, 3) * 5
+        names = concepts.get("concept", pd.Series(dtype=str)).head(3).tolist() if "concept" in concepts else []
+        signal = f"热门题材：{'、'.join(str(name) for name in names) if names else '缺失'}"
+        return self._component("题材热度", max(0, min(weight, heat_score + pct_score)), weight, signal)
 
     def _score_news(self, news: List[Dict[str, Any]]) -> Dict[str, Any]:
+        weight = 20.0
         radar = {"利好": [], "利空": [], "中性/待验证": []}
         rumors = []
-        score_delta = 0.0
+        raw_score = weight / 2
         factors = []
         for item in news[:30]:
             text = " ".join(str(item.get(key, "")) for key in ("title", "summary", "content", "raw_text"))
@@ -103,15 +159,16 @@ class MarketSentimentAnalyzer:
             if any(keyword in text for keyword in RUMOR_KEYWORDS):
                 rumors.append(title)
                 radar["中性/待验证"].append(title)
+                raw_score -= 0.5
                 continue
             positive_tags = self._match_tags(text, POSITIVE_KEYWORDS)
             negative_tags = self._match_tags(text, NEGATIVE_KEYWORDS)
             if positive_tags and not negative_tags:
                 radar["利好"].append(f"{title}（{'/'.join(positive_tags)}）")
-                score_delta += 2.0
+                raw_score += self._news_weight(item, positive_tags)
             elif negative_tags and not positive_tags:
                 radar["利空"].append(f"{title}（{'/'.join(negative_tags)}）")
-                score_delta -= 2.5
+                raw_score -= self._news_weight(item, negative_tags)
             elif positive_tags or negative_tags:
                 radar["中性/待验证"].append(f"{title}（多空交织）")
 
@@ -121,7 +178,23 @@ class MarketSentimentAnalyzer:
             factors.append(f"消息面利空 {len(radar['利空'])} 条")
         if rumors:
             factors.append(f"未证实/传闻类消息 {len(rumors)} 条，不能作为交易依据")
-        return {"score_delta": max(-12, min(12, score_delta)), "factors": factors, "radar": radar, "rumors": rumors}
+        news_signal = f"消息面利好 {len(radar['利好'])} 条、利空 {len(radar['利空'])} 条、待验证 {len(radar['中性/待验证'])} 条"
+        return {
+            "component": self._component("消息面", max(0, min(weight, raw_score)), weight, news_signal),
+            "factors": factors,
+            "radar": radar,
+            "rumors": rumors,
+        }
+
+    def _news_weight(self, item: Dict[str, Any], tags: List[str]) -> float:
+        source = str(item.get("source", "")).lower()
+        source_weight = 1.0
+        if any(name in source for name in ["pbc", "csrc", "stats", "交易所", "官方"]):
+            source_weight = 1.8
+        elif any(name in source for name in ["cls", "eastmoney", "财联社", "东财"]):
+            source_weight = 1.2
+        tag_weight = 1.4 if any("政策" in tag or "宏观" in tag or "外围" in tag for tag in tags) else 1.0
+        return min(3.0, source_weight * tag_weight)
 
     def _match_tags(self, text: str, groups: Dict[str, List[str]]) -> List[str]:
         return [tag for tag, keywords in groups.items() if any(keyword in text for keyword in keywords)]
@@ -137,17 +210,29 @@ class MarketSentimentAnalyzer:
             return "情绪偏弱"
         return "情绪冰点"
 
-    def _confidence(self, snapshot: Dict[str, Any], sectors: pd.DataFrame, news: List[Dict[str, Any]]) -> float:
+    def _confidence(self, snapshot: Dict[str, Any], sectors: pd.DataFrame, news: List[Dict[str, Any]], concepts: pd.DataFrame) -> float:
         confidence = 0.35
         if snapshot.get("indices"):
-            confidence += 0.2
+            confidence += 0.15
+        if snapshot.get("total_amount"):
+            confidence += 0.1
         if snapshot.get("northbound"):
             confidence += 0.15
         if not sectors.empty:
             confidence += 0.15
+        if not concepts.empty:
+            confidence += 0.1
         if news:
             confidence += 0.15
         return round(min(0.9, confidence), 2)
+
+    def _component(self, name: str, score: float, max_score: float, signal: str) -> Dict[str, Any]:
+        return {"name": name, "score": round(score, 1), "max_score": max_score, "signal": signal}
+
+    def _scale(self, value: float, low: float, high: float) -> float:
+        if high <= low:
+            return 0.5
+        return max(0.0, min(1.0, (value - low) / (high - low)))
 
     def _to_float(self, value: Any) -> float:
         try:

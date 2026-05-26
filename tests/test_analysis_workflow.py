@@ -150,6 +150,7 @@ def test_cli_sentiment_outputs_market_news_radar():
     assert result.exit_code == 0
     assert "A 股市场情绪与消息面雷达" in result.output
     assert "情绪评分" in result.output
+    assert "多因子评分拆解" in result.output
     assert "最新消息雷达" in result.output
     assert "小道消息/传闻" in result.output
 
@@ -188,6 +189,11 @@ def test_close_review_uses_market_snapshot_when_available():
                 {"title": "外围市场波动加大", "summary": "外围利空"},
             ]
 
+        def get_concept_performance(self):
+            import pandas as pd
+
+            return pd.DataFrame([{"concept": "AI算力", "pct_chg": 2.4, "heat": 76}])
+
     from stock_assistant.workflows.morning_brief import MorningBriefWorkflow
 
     output = MorningBriefWorkflow(gateway=SnapshotGateway()).close_review()
@@ -195,7 +201,30 @@ def test_close_review_uses_market_snapshot_when_available():
     assert "上证指数：4145.37（-0.17%）" in output
     assert "北向资金：净流出" in output
     assert "情绪评分" in output
+    assert "评分拆解" in output
     assert "震荡分化" in output
+
+
+def test_market_sentiment_uses_multiple_components():
+    import pandas as pd
+
+    from stock_assistant.analyzers.market_sentiment import MarketSentimentAnalyzer
+
+    result = MarketSentimentAnalyzer().analyze(
+        {
+            "indices": [{"name": "上证指数", "pct_chg": 1.0}, {"name": "创业板指", "pct_chg": -0.5}],
+            "northbound": {"net_inflow": -2000000000},
+            "total_amount": 1500000000000,
+        },
+        pd.DataFrame([{"sector": "计算机", "pct_chg": 1.5}, {"sector": "地产", "pct_chg": -1.2}]),
+        [{"title": "市场传言部分题材有催化", "source": "unknown"}],
+        pd.DataFrame([{"concept": "AI算力", "pct_chg": 2.0, "heat": 80}]),
+    )
+
+    names = {item["name"] for item in result["components"]}
+
+    assert {"指数表现", "量能流动性", "北向资金", "板块扩散", "题材热度", "消息面"}.issubset(names)
+    assert result["rumors"]
 
 
 def test_market_snapshot_uses_last_valid_northbound_values():

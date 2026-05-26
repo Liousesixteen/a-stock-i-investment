@@ -14,10 +14,12 @@ class MarketSentimentWorkflow:
     def analyze(self) -> Dict[str, Any]:
         snapshot = self.gateway.get_market_snapshot()
         sectors = self.gateway.get_sector_performance()
+        concepts = self.gateway.get_concept_performance() if hasattr(self.gateway, "get_concept_performance") else None
         news = self.gateway.get_market_news() if hasattr(self.gateway, "get_market_news") else []
-        result = self.analyzer.analyze(snapshot, sectors, news)
+        result = self.analyzer.analyze(snapshot, sectors, news, concepts)
         result["snapshot"] = snapshot
         result["news"] = news
+        result["concepts"] = concepts
         return result
 
     def render(self) -> str:
@@ -25,6 +27,10 @@ class MarketSentimentWorkflow:
         snapshot = result["snapshot"]
         radar = result["news_radar"]
         factors = "\n".join(f"- {item}" for item in result["factors"]) or "- 暂无明显情绪驱动因子"
+        components = "\n".join(
+            f"- {item['name']}：{item['score']}/{item['max_score']}，{item['signal']}"
+            for item in result["components"]
+        )
         good = self._render_items(radar.get("利好", []))
         bad = self._render_items(radar.get("利空", []))
         neutral = self._render_items(radar.get("中性/待验证", []))
@@ -41,6 +47,10 @@ class MarketSentimentWorkflow:
 ## 主要驱动
 
 {factors}
+
+## 多因子评分拆解
+
+{components}
 
 ## 最新消息雷达
 

@@ -41,8 +41,9 @@ class MorningBriefWorkflow:
     def close_review(self) -> str:
         snapshot = self.gateway.get_market_snapshot() if hasattr(self.gateway, "get_market_snapshot") else None
         sectors = self.gateway.get_sector_performance().sort_values("pct_chg", ascending=False)
+        concepts = self.gateway.get_concept_performance() if hasattr(self.gateway, "get_concept_performance") else None
         news = self.gateway.get_market_news() if hasattr(self.gateway, "get_market_news") else []
-        sentiment = MarketSentimentAnalyzer().analyze(snapshot or {}, sectors, news)
+        sentiment = MarketSentimentAnalyzer().analyze(snapshot or {}, sectors, news, concepts)
         strong_names = sectors.head(3)["sector"].tolist()
         weak_names = [name for name in sectors.tail(3)["sector"].tolist() if name not in strong_names]
         strong = "、".join(str(name) for name in strong_names) or "板块数据不足"
@@ -74,6 +75,7 @@ class MorningBriefWorkflow:
 
 - 情绪评分：{sentiment['sentiment_score']}/100，{sentiment['level']}
 - 主要驱动：{"；".join(sentiment['factors'][:3]) if sentiment['factors'] else "暂无明显情绪驱动因子"}
+- 评分拆解：{"；".join(f"{item['name']} {item['score']}/{item['max_score']}" for item in sentiment['components'][:4])}
 - 消息面：利好 {len(sentiment['news_radar'].get('利好', []))} 条，利空 {len(sentiment['news_radar'].get('利空', []))} 条，传闻/待验证 {len(sentiment.get('rumors', []))} 条
 
 ## 强弱板块
