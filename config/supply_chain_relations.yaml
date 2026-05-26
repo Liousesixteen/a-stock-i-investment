@@ -1,0 +1,21 @@
+relations:
+  - from: "688256"
+    to: "AI算力"
+    relation: "BELONGS_TO"
+    evidence: "国产AI芯片属于AI算力上游核心环节"
+    confidence: 0.74
+  - from: "603019"
+    to: "AI算力"
+    relation: "BELONGS_TO"
+    evidence: "服务器和高性能计算属于AI算力基础设施"
+    confidence: 0.78
+  - from: "002415"
+    to: "AI应用与智能设备"
+    relation: "BELONGS_TO"
+    evidence: "智能物联和安防AI应用属于下游应用场景"
+    confidence: 0.62
+  - from: "300750"
+    to: "新能源车"
+    relation: "BELONGS_TO"
+    evidence: "动力电池属于新能源车核心中游环节"
+    confidence: 0.82

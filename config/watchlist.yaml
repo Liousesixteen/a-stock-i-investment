@@ -1,0 +1,9 @@
+watchlists:
+  core:
+    - symbol: "002415"
+      name: "海康威视"
+      industry: "计算机设备"
+      chain: "AI应用与智能设备"
+      note: "MVP 样例观察"
+      priority: high
+positions: []

@@ -1,0 +1,92 @@
+industries:
+  ai_compute:
+    name: "AI算力"
+    aliases: ["算力", "AI服务器", "数据中心"]
+    drivers: ["大模型训练需求", "推理算力增长", "国产算力替代", "云厂商资本开支"]
+    upstream:
+      - segment: "AI芯片"
+        description: "算力产业链核心上游，决定训练和推理性能。"
+        companies:
+          - symbol: "688256"
+            name: "寒武纪"
+            role: "国产AI芯片"
+            benefit_type: "直接受益"
+    midstream:
+      - segment: "算力基础设施"
+        description: "服务器、高性能计算、数据中心基础设施。"
+        companies:
+          - symbol: "603019"
+            name: "中科曙光"
+            role: "服务器/算力基础设施"
+            benefit_type: "直接受益"
+    downstream:
+      - segment: "AI应用"
+        description: "AI模型和行业应用落地。"
+        companies: []
+    risks:
+      - "估值过高"
+      - "订单兑现不及预期"
+      - "题材退潮"
+  semiconductor:
+    name: "半导体"
+    aliases: ["芯片", "集成电路", "国产替代"]
+    upstream: [{segment: "设备材料", description: "半导体制造设备与材料。", companies: []}]
+    midstream: [{segment: "晶圆制造/封测", description: "制造、封装和测试环节。", companies: []}]
+    downstream: [{segment: "芯片设计与应用", description: "设计公司与终端应用。", companies: []}]
+    risks: ["周期下行", "海外限制", "估值过高"]
+  robotics:
+    name: "机器人"
+    aliases: ["人形机器人", "工业机器人"]
+    upstream: [{segment: "核心零部件", description: "减速器、丝杠、传感器、控制器。", companies: []}]
+    midstream: [{segment: "本体制造", description: "机器人本体和系统集成。", companies: []}]
+    downstream: [{segment: "应用场景", description: "工业、服务、特种场景。", companies: []}]
+    risks: ["商业化不及预期", "成本下降慢", "题材退潮"]
+  new_energy_vehicle:
+    name: "新能源车"
+    aliases: ["电动车", "新能源汽车"]
+    upstream: [{segment: "锂电材料", description: "锂、镍、隔膜、电解液等。", companies: []}]
+    midstream: [{segment: "动力电池/整车", description: "电池、零部件与整车。", companies: []}]
+    downstream: [{segment: "充换电/服务", description: "充电桩、运营服务。", companies: []}]
+    risks: ["价格战", "产能过剩", "补贴政策变化"]
+  solid_state_battery:
+    name: "固态电池"
+    aliases: ["半固态电池", "硫化物电解质"]
+    upstream: [{segment: "材料体系", description: "固态电解质、锂金属负极。", companies: []}]
+    midstream: [{segment: "电池制造", description: "半固态/固态电池量产。", companies: []}]
+    downstream: [{segment: "车企验证", description: "整车搭载和认证。", companies: []}]
+    risks: ["量产进度低于预期", "成本过高", "技术路线不确定"]
+  innovative_drug:
+    name: "创新药"
+    aliases: ["医药创新", "Biotech"]
+    upstream: [{segment: "研发服务", description: "CRO/CDMO等研发和生产服务。", companies: []}]
+    midstream: [{segment: "创新药企", description: "管线研发和临床推进。", companies: []}]
+    downstream: [{segment: "商业化", description: "医院、药房、出海授权。", companies: []}]
+    risks: ["临床失败", "集采降价", "融资环境收紧"]
+  low_altitude:
+    name: "低空经济"
+    aliases: ["eVTOL", "低空飞行", "通航"]
+    upstream: [{segment: "核心部件", description: "电机、电池、飞控、复材。", companies: []}]
+    midstream: [{segment: "整机制造", description: "eVTOL和无人机整机。", companies: []}]
+    downstream: [{segment: "运营服务", description: "空域管理、运营、低空基础设施。", companies: []}]
+    risks: ["政策落地慢", "订单兑现不确定", "安全监管"]
+  consumer_electronics:
+    name: "消费电子"
+    aliases: ["苹果链", "AI终端", "MR"]
+    upstream: [{segment: "零部件", description: "光学、声学、结构件、芯片。", companies: []}]
+    midstream: [{segment: "模组/组装", description: "模组、代工和整机组装。", companies: []}]
+    downstream: [{segment: "品牌终端", description: "手机、PC、可穿戴、MR。", companies: []}]
+    risks: ["需求复苏不及预期", "客户集中", "新品销量不及预期"]
+  data_center:
+    name: "数据中心"
+    aliases: ["IDC", "液冷", "算力中心"]
+    upstream: [{segment: "电力/制冷", description: "电源、液冷、温控。", companies: []}]
+    midstream: [{segment: "IDC建设运营", description: "数据中心建设和运营。", companies: []}]
+    downstream: [{segment: "云服务", description: "云厂商和算力租赁。", companies: []}]
+    risks: ["利用率不足", "电力约束", "资本开支下降"]
+  military_it:
+    name: "军工信息化"
+    aliases: ["国防信息化", "军工电子"]
+    upstream: [{segment: "元器件", description: "高可靠电子元器件。", companies: []}]
+    midstream: [{segment: "系统装备", description: "通信、雷达、指挥控制。", companies: []}]
+    downstream: [{segment: "军方应用", description: "装备列装和体系建设。", companies: []}]
+    risks: ["订单节奏波动", "预算变化", "验收延期"]

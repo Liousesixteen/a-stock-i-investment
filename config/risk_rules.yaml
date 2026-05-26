@@ -1,0 +1,37 @@
+max_single_stock_pct:
+  low_risk: 25
+  medium_risk: 15
+  medium_high_risk: 10
+  high_risk: 5
+  extreme_risk: 0
+technical_rules:
+  warn_if_below_ma20: true
+  warn_if_far_above_ma20_pct: 12
+  warn_if_rsi_above: 80
+announcement_rules:
+  hard_block_events:
+    - 立案调查
+    - 退市风险
+    - 重大违法
+    - 财务造假
+  warn_events:
+    - 减持
+    - 解禁
+    - 诉讼
+    - 监管问询
+    - 业绩预亏
+fundamental_rules:
+  strong_revenue_yoy: 10
+  strong_net_profit_yoy: 10
+  strong_roe: 12
+  warn_if_revenue_yoy_below: 0
+  warn_if_net_profit_yoy_below: 0
+  warn_if_roe_below: 5
+  warn_if_debt_ratio_above: 70
+  healthy_debt_ratio_below: 45
+  warn_if_ocf_negative: true
+valuation_rules:
+  reasonable_pe_max: 25
+  high_pe: 45
+  reasonable_pb_max: 3
+  high_pb: 6

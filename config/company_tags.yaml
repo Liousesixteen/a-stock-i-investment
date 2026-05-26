@@ -1,0 +1,57 @@
+companies:
+  "603019":
+    name: "中科曙光"
+    chain: "AI算力"
+    segment: "算力基础设施"
+    role: "服务器/算力基础设施"
+    benefit_type: "直接受益"
+    confidence: 0.78
+    products: ["高性能计算机", "服务器", "数据中心"]
+    concepts: ["AI算力", "数据中心", "国产服务器"]
+    risks: ["估值过高", "订单兑现不及预期"]
+    evidence:
+      - source: "local"
+        text: "公司业务与高性能计算、服务器和数据中心基础设施相关。"
+        updated_at: "2026-05-25"
+  "688256":
+    name: "寒武纪"
+    chain: "AI算力"
+    segment: "AI芯片"
+    role: "国产AI芯片"
+    benefit_type: "直接受益"
+    confidence: 0.74
+    products: ["AI芯片", "智能处理器"]
+    concepts: ["AI芯片", "国产算力"]
+    risks: ["估值过高", "研发投入高"]
+    evidence:
+      - source: "local"
+        text: "公司处于AI算力上游芯片环节。"
+        updated_at: "2026-05-25"
+  "002415":
+    name: "海康威视"
+    chain: "AI应用与智能设备"
+    segment: "下游场景应用"
+    role: "智能物联/安防AI应用"
+    benefit_type: "间接受益"
+    confidence: 0.62
+    products: ["视频感知设备", "智能物联", "AI场景应用"]
+    concepts: ["人工智能", "安防", "机器人"]
+    risks: ["题材相关度高于业绩兑现度", "海外业务不确定"]
+    evidence:
+      - source: "local"
+        text: "公司业务与智能物联和安防AI应用相关，偏下游应用环节。"
+        updated_at: "2026-05-25"
+  "300750":
+    name: "宁德时代"
+    chain: "新能源车"
+    segment: "动力电池/整车"
+    role: "动力电池龙头"
+    benefit_type: "直接受益"
+    confidence: 0.82
+    products: ["动力电池", "储能电池"]
+    concepts: ["新能源车", "储能"]
+    risks: ["价格战", "原材料价格波动"]
+    evidence:
+      - source: "local"
+        text: "公司处于新能源车动力电池核心环节。"
+        updated_at: "2026-05-25"

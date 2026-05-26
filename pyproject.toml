@@ -1,0 +1,32 @@
+[project]
+name = "a-stock-investment"
+version = "0.1.0"
+description = "A-share investment analysis skill suite"
+requires-python = ">=3.9"
+dependencies = [
+  "pandas",
+  "numpy",
+  "pydantic",
+  "requests",
+  "akshare",
+  "mootdx",
+  "stockstats",
+  "typer",
+  "pyyaml",
+  "jinja2",
+  "rich",
+]
+
+[project.scripts]
+stock-assistant = "stock_assistant.cli:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["stock_assistant*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

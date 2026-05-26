@@ -1,0 +1,10 @@
+user:
+  default_market: A
+  risk_preference: balanced
+  default_time_horizon: swing
+  default_analysis_mode: standard
+  max_single_stock_pct: 15
+  max_sector_pct: 35
+  max_chain_pct: 35
+  prefer_stop_loss: true
+  report_language: zh-CN
