@@ -231,7 +231,7 @@ class AStockDataLiveProvider:
         keys = market_data.get("keys") or []
         rows = [row for row in (market_data.get("marketData") or "").split(";") if row]
         if not keys or not rows:
-            raise RuntimeError(f"Baidu K-line empty for {code}")
+            return self._tencent_daily_bars(code)
         parsed: List[Dict[str, Any]] = []
         previous_close = None
         for raw in rows[-120:]:
@@ -254,6 +254,42 @@ class AStockDataLiveProvider:
                 }
             )
         return pd.DataFrame(parsed, columns=DAILY_COLUMNS)
+
+    def _tencent_daily_bars(self, symbol: str, limit: int = 120) -> pd.DataFrame:
+        code = normalize_symbol(symbol)
+        prefixed = f"sh{code}" if code.startswith(("6", "9")) else f"sz{code}"
+        url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+        params = {"param": f"{prefixed},day,,,{limit},qfq"}
+        payload = requests.get(url, params=params, headers={"User-Agent": UA, "Referer": "https://gu.qq.com/"}, timeout=10).json()
+        stock_data = (payload.get("data") or {}).get(prefixed) or {}
+        rows = stock_data.get("qfqday") or stock_data.get("day") or []
+        parsed = []
+        previous_close = None
+        for row in rows[-limit:]:
+            if len(row) < 6:
+                continue
+            close = self._num(row[2])
+            pct_chg = 0.0 if previous_close in (None, 0) else round((close - previous_close) / previous_close * 100, 2)
+            previous_close = close
+            volume = self._num(row[5]) * 100
+            parsed.append(
+                {
+                    "date": str(row[0]),
+                    "open": self._num(row[1]),
+                    "high": self._num(row[3]),
+                    "low": self._num(row[4]),
+                    "close": close,
+                    "volume": volume,
+                    "amount": volume * close,
+                    "turnover_rate": 0,
+                    "pct_chg": pct_chg,
+                }
+            )
+        if not parsed:
+            raise RuntimeError(f"Tencent K-line empty for {code}")
+        frame = pd.DataFrame(parsed, columns=DAILY_COLUMNS)
+        frame.attrs["source"] = "a-stock-data:tencent-kline"
+        return frame
 
     def baidu_kline(self, symbol: str) -> Dict[str, Any]:
         code = normalize_symbol(symbol)

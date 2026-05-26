@@ -86,6 +86,44 @@ def test_akshare_adapter_can_fetch_daily_bars_with_fake_module(monkeypatch):
     assert result["data"].iloc[0]["close"] == 2
 
 
+def test_akshare_adapter_daily_bars_uses_tencent_when_eastmoney_fails(monkeypatch):
+    def broken_hist(symbol, period, adjust):
+        raise RuntimeError("eastmoney proxy down")
+
+    fake_akshare = types.SimpleNamespace(
+        stock_zh_a_hist=broken_hist,
+        stock_zh_a_hist_tx=lambda symbol, start_date, end_date, adjust: pd.DataFrame(
+            [{"date": "2026-05-25", "open": 1, "high": 3, "low": 1, "close": 2, "amount": 100}]
+        ),
+    )
+
+    monkeypatch.setattr("stock_assistant.data_sources.adapters.importlib.import_module", lambda name: fake_akshare)
+    adapter = AkShareAdapter()
+
+    result = adapter.fetch("daily_bars", "603078")
+
+    assert result["status"] == "ok"
+    assert result["data"].iloc[0]["close"] == 2
+    assert result["data"].iloc[0]["volume"] == 100
+
+
+def test_akshare_adapter_financials_try_em_before_empty_legacy_endpoint(monkeypatch):
+    fake_akshare = types.SimpleNamespace(
+        stock_financial_analysis_indicator=lambda symbol: pd.DataFrame(),
+        stock_financial_analysis_indicator_em=lambda symbol, indicator: pd.DataFrame(
+            [{"REPORT_DATE": "2026-03-31", "TOTALOPERATEREVE": 10, "PARENTNETPROFIT": 2}]
+        ),
+    )
+
+    monkeypatch.setattr("stock_assistant.data_sources.adapters.importlib.import_module", lambda name: fake_akshare)
+    adapter = AkShareAdapter()
+
+    result = adapter.fetch("financial_statements", "002415")
+
+    assert result["status"] == "ok"
+    assert result["data"].iloc[0]["PARENTNETPROFIT"] == 2
+
+
 def test_akshare_adapter_supports_market_and_signal_endpoints(monkeypatch):
     calls = []
 

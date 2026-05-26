@@ -238,6 +238,72 @@ def test_gateway_uses_policy_fallback_for_sector_and_capital_flow(tmp_path):
     assert flow.attrs["source"] == "akshare"
 
 
+def test_gateway_uses_real_fallback_even_when_failure_cooldown_exists(tmp_path):
+    adapter = PolicyFallbackAdapter()
+    gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=BrokenLiveProvider(), fallback_adapters=[adapter])
+    gateway._write_failure("sector_performance", "live sector down")
+    gateway._write_failure("capital_flow_120d_002415", "live flow down")
+
+    sectors = gateway.get_sector_performance()
+    flow = gateway.get_capital_flow("002415")
+
+    assert sectors.iloc[0]["sector"] == "计算机设备"
+    assert sectors.attrs["source"] == "akshare"
+    assert flow.iloc[0]["main_net_inflow"] == 123
+    assert flow.attrs["source"] == "akshare"
+
+
+def test_gateway_financial_snapshot_maps_em_fallback_fields(tmp_path):
+    class FinancialFallbackAdapter:
+        def fetch(self, endpoint, symbol):
+            if endpoint == "financial_statements":
+                return {
+                    "provider": "akshare",
+                    "status": "ok",
+                    "data": pd.DataFrame(
+                        [
+                            {
+                                "REPORT_DATE": "2026-03-31",
+                                "TOTALOPERATEREVE": 100,
+                                "TOTALOPERATEREVETZ": 12.5,
+                                "PARENTNETPROFIT": 20,
+                                "PARENTNETPROFITTZ": 35.0,
+                                "XSMLL": 48.0,
+                                "ROEJQ": 3.2,
+                            }
+                        ]
+                    ),
+                    "message": "",
+                }
+            return {"provider": "akshare", "status": "unsupported", "data": None, "message": "unsupported"}
+
+    gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=BrokenLiveProvider(), fallback_adapters=[FinancialFallbackAdapter()])
+
+    snapshot = gateway.get_financial_snapshot("002415")
+
+    assert snapshot["report_date"] == "2026-03-31"
+    assert snapshot["revenue_yoy"] == 12.5
+    assert snapshot["net_profit_yoy"] == 35.0
+    assert snapshot["source"] == "akshare"
+
+
+def test_gateway_standardizes_akshare_northbound_summary_columns(tmp_path):
+    gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=False)
+    northbound = {
+        "data": pd.DataFrame(
+            [
+                {"交易日": "2026-05-26", "资金方向": "北向", "板块": "沪股通", "成交净买额": -12.5},
+                {"交易日": "2026-05-26", "资金方向": "北向", "板块": "深股通", "成交净买额": -8.0},
+            ]
+        )
+    }
+
+    result = gateway._standardize_northbound(northbound)
+
+    assert result["net_inflow"] == -2050000000
+    assert result["status"] == "净流出"
+
+
 def test_gateway_standardizes_announcement_fallback(tmp_path):
     adapter = PolicyFallbackAdapter()
     gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=BrokenLiveProvider(), fallback_adapters=[adapter])

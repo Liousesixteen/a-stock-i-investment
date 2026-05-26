@@ -113,18 +113,65 @@ class AkShareAdapter:
             return {"provider": "akshare", "endpoint": endpoint, "status": "fail", "data": None, "message": str(exc)}
 
     def _daily_bars(self, symbol: str) -> pd.DataFrame:
-        raw = self.akshare.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
-        rename = {"日期": "date", "开盘": "open", "最高": "high", "最低": "low", "收盘": "close", "成交量": "volume", "成交额": "amount", "换手率": "turnover_rate", "涨跌幅": "pct_chg"}
+        errors = []
+        raw = None
+        if hasattr(self.akshare, "stock_zh_a_hist"):
+            try:
+                raw = self.akshare.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
+            except Exception as exc:
+                errors.append(f"stock_zh_a_hist: {exc}")
+        if (raw is None or raw.empty) and hasattr(self.akshare, "stock_zh_a_hist_tx"):
+            try:
+                raw = self.akshare.stock_zh_a_hist_tx(symbol=self._prefixed_symbol(symbol), start_date=self._date_str(days_ago=120), end_date=self._date_str(), adjust="qfq")
+            except Exception as exc:
+                errors.append(f"stock_zh_a_hist_tx: {exc}")
+        if (raw is None or raw.empty) and hasattr(self.akshare, "stock_zh_a_daily"):
+            try:
+                raw = self.akshare.stock_zh_a_daily(symbol=self._prefixed_symbol(symbol), start_date=self._date_str(days_ago=120), end_date=self._date_str(), adjust="qfq")
+            except Exception as exc:
+                errors.append(f"stock_zh_a_daily: {exc}")
+        if raw is None or raw.empty:
+            raise RuntimeError("; ".join(errors) or "akshare daily bar endpoints returned empty")
+        rename = {
+            "日期": "date",
+            "开盘": "open",
+            "最高": "high",
+            "最低": "low",
+            "收盘": "close",
+            "成交量": "volume",
+            "成交额": "amount",
+            "换手率": "turnover_rate",
+            "涨跌幅": "pct_chg",
+        }
         df = raw.rename(columns=rename)
+        if "volume" not in df and "amount" in df:
+            df["volume"] = df["amount"]
+            df["amount"] = 0
         for column in DAILY_COLUMNS:
             if column not in df:
                 df[column] = 0
         return df[DAILY_COLUMNS]
 
     def _financial_indicators(self, symbol: str) -> Any:
-        if hasattr(self.akshare, "stock_financial_analysis_indicator"):
-            return self.akshare.stock_financial_analysis_indicator(symbol=symbol)
-        raise RuntimeError("akshare stock_financial_analysis_indicator unavailable")
+        calls = [
+            ("stock_financial_analysis_indicator_em", lambda: self.akshare.stock_financial_analysis_indicator_em(symbol=self._suffixed_symbol(symbol), indicator="按报告期")),
+            ("stock_financial_abstract_ths", lambda: self.akshare.stock_financial_abstract_ths(symbol=symbol, indicator="按报告期")),
+            ("stock_financial_abstract_new_ths", lambda: self.akshare.stock_financial_abstract_new_ths(symbol=symbol)),
+            ("stock_financial_analysis_indicator", lambda: self.akshare.stock_financial_analysis_indicator(symbol=symbol)),
+            ("stock_financial_abstract", lambda: self.akshare.stock_financial_abstract(symbol=symbol)),
+        ]
+        errors = []
+        for name, call in calls:
+            if not hasattr(self.akshare, name):
+                continue
+            try:
+                data = call()
+                if data is not None and (not hasattr(data, "empty") or not data.empty):
+                    return data
+                errors.append(f"{name}: empty")
+            except Exception as exc:
+                errors.append(f"{name}: {exc}")
+        raise RuntimeError("; ".join(errors) or "akshare financial endpoints unavailable")
 
     def _stock_news(self, symbol: str) -> Any:
         if hasattr(self.akshare, "stock_news_em"):
@@ -167,10 +214,25 @@ class AkShareAdapter:
         return raw.loc[raw["代码"].astype(str) == symbol]
 
     def _index_bars(self, symbol: str, **kwargs: Any) -> Any:
-        self._require("stock_zh_index_hist_csindex")
         start_date = kwargs.get("start_date") or self._date_str(days_ago=365)
         end_date = kwargs.get("end_date") or self._date_str()
-        return self.akshare.stock_zh_index_hist_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
+        calls = [
+            ("stock_zh_index_hist_csindex", lambda: self.akshare.stock_zh_index_hist_csindex(symbol=symbol, start_date=start_date, end_date=end_date)),
+            ("index_zh_a_hist", lambda: self.akshare.index_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date)),
+            ("stock_zh_index_daily_tx", lambda: self.akshare.stock_zh_index_daily_tx(symbol=self._index_prefixed_symbol(symbol), start_date=start_date, end_date=end_date)),
+        ]
+        errors = []
+        for name, call in calls:
+            if not hasattr(self.akshare, name):
+                continue
+            try:
+                data = call()
+                if data is not None and (not hasattr(data, "empty") or not data.empty):
+                    return data
+                errors.append(f"{name}: empty")
+            except Exception as exc:
+                errors.append(f"{name}: {exc}")
+        raise RuntimeError("; ".join(errors) or "akshare index bar endpoints unavailable")
 
     def _order_book(self, symbol: str) -> Any:
         self._require("stock_bid_ask_em")
@@ -261,6 +323,16 @@ class AkShareAdapter:
 
     def _market(self, symbol: str) -> str:
         return "sh" if symbol.startswith(("6", "9")) else "sz"
+
+    def _prefixed_symbol(self, symbol: str) -> str:
+        return f"{self._market(symbol)}{symbol}"
+
+    def _suffixed_symbol(self, symbol: str) -> str:
+        suffix = "SH" if self._market(symbol) == "sh" else "SZ"
+        return f"{symbol}.{suffix}"
+
+    def _index_prefixed_symbol(self, symbol: str) -> str:
+        return f"sh{symbol}" if symbol.startswith(("0", "5")) else f"sz{symbol}"
 
     def _date_str(self, days_ago: int = 0) -> str:
         return (date.today() - timedelta(days=days_ago)).strftime("%Y%m%d")

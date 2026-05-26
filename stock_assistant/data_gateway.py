@@ -205,7 +205,10 @@ class AStockDataGateway:
             try:
                 bars = self.live_provider.daily_bars(code)
                 if not bars.empty:
-                    self._write_cached_frame(f"daily_bars_{code}", bars, "a-stock-data", ttl_key="daily_bars")
+                    bars = bars.copy()
+                    source = bars.attrs.get("source", "a-stock-data")
+                    bars.attrs["source"] = source
+                    self._write_cached_frame(f"daily_bars_{code}", bars, source, ttl_key="daily_bars")
                     return bars
             except Exception:
                 pass
@@ -221,7 +224,7 @@ class AStockDataGateway:
     def get_index_bars(self, index_code: str, start: str | None = None, end: str | None = None) -> pd.DataFrame:
         fallback = self._fallback_fetch("index_bars", "000000", index_symbol=index_code, start_date=start, end_date=end)
         if fallback.get("status") == "ok" and isinstance(fallback.get("data"), pd.DataFrame) and not fallback["data"].empty:
-            return fallback["data"]
+            return self._mark_fallback_frame(self._standardize_index_bars(fallback["data"]), fallback)
         return pd.DataFrame(columns=["date", "close", "pct_chg", "amount"])
 
     def get_market_snapshot(self) -> Dict[str, Any]:
@@ -265,10 +268,25 @@ class AStockDataGateway:
             sgt_series = data["sgt_yi"].dropna() if "sgt_yi" in data else pd.Series(dtype=float)
             hgt = self._to_float(hgt_series.iloc[-1] if not hgt_series.empty else 0) * 100000000
             sgt = self._to_float(sgt_series.iloc[-1] if not sgt_series.empty else 0) * 100000000
+            if hgt == 0 and sgt == 0:
+                north_rows = data
+                if "资金方向" in data:
+                    north_rows = data.loc[data["资金方向"].astype(str).str.contains("北向", na=False)]
+                if not north_rows.empty and "板块" in north_rows:
+                    hgt_rows = north_rows.loc[north_rows["板块"].astype(str).str.contains("沪股通", na=False)]
+                    sgt_rows = north_rows.loc[north_rows["板块"].astype(str).str.contains("深股通", na=False)]
+                    hgt = self._latest_yi_value(hgt_rows, "成交净买额", "资金净流入", "当日资金流入")
+                    sgt = self._latest_yi_value(sgt_rows, "成交净买额", "资金净流入", "当日资金流入")
+                if hgt == 0 and sgt == 0:
+                    net_yi = self._latest_yi_value(north_rows, "当日成交净买额", "成交净买额", "资金净流入", "当日资金流入")
+                    hgt = net_yi
             net = hgt + sgt
             return {"net_inflow": net, "status": "净流入" if net > 0 else "净流出", "hgt": hgt, "sgt": sgt}
         net = self._to_float(northbound.get("net_inflow", 0))
-        return {"net_inflow": net, "status": northbound.get("status", "净流入" if net > 0 else "净流出")}
+        status = northbound.get("status")
+        if not status or status == "live":
+            status = "净流入" if net > 0 else "净流出" if net < 0 else "持平"
+        return {"net_inflow": net, "status": status}
 
     def _market_summary(self, indices: List[Dict[str, Any]], northbound: Dict[str, Any]) -> str:
         if not indices:
@@ -313,11 +331,6 @@ class AStockDataGateway:
         if cached is not None:
             return cached
         failure = self._read_failure("sector_performance")
-        if failure:
-            frame = pd.DataFrame(columns=["sector", "pct_chg", "amount", "strength"])
-            frame.attrs["missing_data"] = [MissingData("sector_performance", failure.get("reason", "真实板块接口冷却中")).to_dict()]
-            frame.attrs["source"] = "missing"
-            return frame
         if self.use_live and self.live_provider and hasattr(self.live_provider, "sector_performance"):
             try:
                 sectors = self.live_provider.sector_performance()
@@ -333,7 +346,8 @@ class AStockDataGateway:
             return frame
         self._write_failure("sector_performance", fallback.get("message", "sector source unavailable"))
         frame = pd.DataFrame(columns=["sector", "pct_chg", "amount", "strength"])
-        frame.attrs["missing_data"] = [MissingData("sector_performance", fallback.get("message", "真实板块数据缺失")).to_dict()]
+        reason = fallback.get("message") or (failure or {}).get("reason") or "真实板块数据缺失"
+        frame.attrs["missing_data"] = [MissingData("sector_performance", reason).to_dict()]
         frame.attrs["source"] = "missing"
         return frame
 
@@ -637,6 +651,15 @@ class AStockDataGateway:
                 df[column] = 0
         return df[DAILY_COLUMNS]
 
+    def _standardize_index_bars(self, data: pd.DataFrame) -> pd.DataFrame:
+        df = data.copy()
+        rename = {"日期": "date", "收盘": "close", "涨跌幅": "pct_chg", "成交额": "amount"}
+        df = df.rename(columns=rename)
+        for column in ["date", "close", "pct_chg", "amount"]:
+            if column not in df:
+                df[column] = 0
+        return df[["date", "close", "pct_chg", "amount"]]
+
     def _standardize_news(self, data: Any, symbol: str) -> List[Dict[str, Any]]:
         if isinstance(data, pd.DataFrame):
             rows = data.to_dict("records")
@@ -742,6 +765,25 @@ class AStockDataGateway:
                 return row[key]
         return None
 
+    def _latest_yi_value(self, data: pd.DataFrame, *columns: str) -> float:
+        for column in columns:
+            if column not in data:
+                continue
+            series = pd.to_numeric(data[column], errors="coerce").dropna()
+            if not series.empty:
+                return float(series.iloc[-1]) * 100000000
+        return 0.0
+
+    def _value_by_alias(self, row: Dict[str, Any], *aliases: str) -> Any:
+        for alias in aliases:
+            if alias in row and row[alias] not in ("", "-", None):
+                return row[alias]
+        for alias in aliases:
+            for key, value in row.items():
+                if alias in str(key) and value not in ("", "-", None):
+                    return value
+        return None
+
     def _first_record(self, data: Any) -> Dict[str, Any]:
         if isinstance(data, pd.DataFrame):
             if data.empty:
@@ -757,23 +799,37 @@ class AStockDataGateway:
         data = statements.get("data")
         frame = data if isinstance(data, pd.DataFrame) else None
         row = self._first_record(frame) if frame is not None else self._first_record(data)
+        if isinstance(frame, pd.DataFrame) and {"指标", "选项"}.issubset(frame.columns):
+            row = self._financial_metric_matrix_row(frame)
         return {
-            "report_date": row.get("日期") or row.get("报告期") or row.get("report_date"),
-            "revenue": row.get("营业收入") or row.get("revenue"),
-            "revenue_yoy": row.get("营业收入同比增长率") or row.get("revenue_yoy"),
-            "net_profit": row.get("净利润") or row.get("net_profit"),
-            "net_profit_yoy": row.get("净利润同比增长率") or row.get("net_profit_yoy"),
-            "gross_margin": row.get("销售毛利率") or row.get("gross_margin"),
-            "net_margin": row.get("销售净利率") or row.get("net_margin"),
-            "roe": row.get("净资产收益率") or row.get("roe"),
-            "debt_ratio": row.get("资产负债率") or row.get("debt_ratio"),
-            "operating_cashflow": row.get("经营活动产生的现金流量净额") or row.get("operating_cashflow"),
-            "free_cashflow": row.get("free_cashflow"),
-            "eps": row.get("每股收益") or row.get("eps"),
-            "bps": row.get("每股净资产") or row.get("bps"),
+            "report_date": self._value_by_alias(row, "报告期", "报告日", "REPORT_DATE", "report_date", "日期"),
+            "revenue": self._value_by_alias(row, "营业收入", "营业总收入", "TOTALOPERATEREVE", "revenue"),
+            "revenue_yoy": self._value_by_alias(row, "营业收入同比增长率", "营业总收入同比增长率", "TOTALOPERATEREVETZ", "revenue_yoy"),
+            "net_profit": self._value_by_alias(row, "归母净利润", "净利润", "PARENTNETPROFIT", "net_profit"),
+            "net_profit_yoy": self._value_by_alias(row, "净利润同比增长率", "PARENTNETPROFITTZ", "net_profit_yoy"),
+            "gross_margin": self._value_by_alias(row, "销售毛利率", "XSMLL", "gross_margin"),
+            "net_margin": self._value_by_alias(row, "销售净利率", "XSJLL", "net_margin"),
+            "roe": self._value_by_alias(row, "净资产收益率", "ROEJQ", "roe"),
+            "debt_ratio": self._value_by_alias(row, "资产负债率", "ZCFZL", "debt_ratio"),
+            "operating_cashflow": self._value_by_alias(row, "经营活动产生的现金流量净额", "每股经营现金流", "MGJYXJJE", "operating_cashflow"),
+            "free_cashflow": self._value_by_alias(row, "FCFF_FORWARD", "free_cashflow"),
+            "eps": self._value_by_alias(row, "基本每股收益", "每股收益", "EPSJB", "eps"),
+            "bps": self._value_by_alias(row, "每股净资产", "BPS", "bps"),
             "source": statements.get("fallback_provider") or statements.get("source") or "missing",
             "missing_data": statements.get("missing_data", []),
         }
+
+    def _financial_metric_matrix_row(self, frame: pd.DataFrame) -> Dict[str, Any]:
+        periods = [str(column) for column in frame.columns if str(column).isdigit()]
+        if not periods:
+            return {}
+        latest_period = sorted(periods, reverse=True)[0]
+        row: Dict[str, Any] = {"报告期": latest_period}
+        for _, item in frame.iterrows():
+            metric = str(item.get("指标", ""))
+            if metric:
+                row[metric] = item.get(latest_period)
+        return row
 
 
     def _standardize_announcements(self, data: Any, symbol: str, provider: str) -> List[Dict[str, Any]]:
@@ -838,7 +894,7 @@ class AStockDataGateway:
                 self._write_failure(f"capital_flow_120d_{code}", live_error)
         elif failure:
             live_error = failure.get("reason")
-        fallback_result = self._fallback_fetch("capital_flow_120d", code) if not failure else {"status": "unavailable", "data": None}
+        fallback_result = self._fallback_fetch("capital_flow_120d", code)
         if fallback_result.get("status") == "ok" and isinstance(fallback_result.get("data"), pd.DataFrame) and not fallback_result["data"].empty:
             flow = fallback_result["data"].copy()
             rename = {

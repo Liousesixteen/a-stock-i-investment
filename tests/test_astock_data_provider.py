@@ -103,3 +103,34 @@ def test_provider_builds_financial_snapshot_from_sina_report(monkeypatch):
     assert snapshot["revenue"] == 1000000
     assert snapshot["revenue_yoy"] == 6.5
     assert snapshot["net_profit"] == 120000
+
+
+def test_provider_daily_bars_uses_tencent_when_baidu_empty(monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls.append(url)
+        if "finance.pae.baidu.com" in url:
+            return FakeResponse({"Result": {"newMarketData": {"keys": [], "marketData": ""}}})
+        return FakeResponse(
+            {
+                "data": {
+                    "sh603078": {
+                        "qfqday": [
+                            ["2026-05-25", "30.00", "32.00", "33.00", "29.50", "1000.000"],
+                            ["2026-05-26", "32.00", "33.14", "34.43", "32.61", "2000.000"],
+                        ]
+                    }
+                }
+            }
+        )
+
+    monkeypatch.setattr("stock_assistant.providers.astock_data.requests.get", fake_get)
+    provider = AStockDataLiveProvider()
+
+    bars = provider.daily_bars("603078")
+
+    assert bars.iloc[-1]["close"] == 33.14
+    assert bars.iloc[-1]["volume"] == 200000
+    assert bars.attrs["source"] == "a-stock-data:tencent-kline"
+    assert len(calls) == 2

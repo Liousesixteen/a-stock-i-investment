@@ -123,7 +123,8 @@ class MarketSentimentAnalyzer:
             score = 5.0
         else:
             score = 8.0
-        return self._component("北向资金", score, weight, f"北向资金净流入 {round(net_yi, 2)} 亿")
+        direction = "净流入" if net_yi > 0 else "净流出" if net_yi < 0 else "持平"
+        return self._component("北向资金", score, weight, f"北向资金{direction} {abs(round(net_yi, 2))} 亿")
 
     def _score_sectors(self, sectors: pd.DataFrame) -> Dict[str, Any]:
         weight = 20.0
