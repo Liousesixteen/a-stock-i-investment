@@ -152,15 +152,15 @@ def test_gateway_uses_live_provider_when_enabled(tmp_path):
 
 
 def test_gateway_falls_back_when_live_provider_fails(tmp_path):
-    gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=BrokenLiveProvider())
+    gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=BrokenLiveProvider(), fallback_adapters=[])
 
     quote = gateway.get_realtime_quote("002415")
     bars = gateway.get_daily_bars("002415")
 
-    assert quote["name"] == "海康威视"
-    assert quote["price"] > 0
-    assert "live_quote" in {item["field"] for item in quote["missing_data"]}
-    assert not bars.empty
+    assert quote["name"] == "002415"
+    assert quote["price"] is None
+    assert {"live_quote", "realtime_quote"}.issubset({item["field"] for item in quote["missing_data"]})
+    assert bars.empty
 
 
 def test_gateway_marks_standard_live_fallbacks(tmp_path):
@@ -172,21 +172,21 @@ def test_gateway_marks_standard_live_fallbacks(tmp_path):
     flow = gateway.get_capital_flow("002415")
 
     assert "live_financial_snapshot" in {item["field"] for item in financial["missing_data"]}
-    assert "live_announcements" in {item["field"] for item in announcements[0]["missing_data"]}
-    assert "live_news" in {item["field"] for item in news[0]["missing_data"]}
-    assert "live_capital_flow" in set(flow.attrs["missing_data_fields"])
+    assert "announcements" in {item["field"] for item in announcements[0]["missing_data"]}
+    assert "stock_news" in {item["field"] for item in news[0]["missing_data"]}
+    assert "capital_flow_120d" in set(flow.attrs["missing_data_fields"])
 
 
-def test_gateway_merges_local_concepts_when_live_basic_lacks_them(tmp_path):
+def test_gateway_does_not_invent_local_concepts_when_live_basic_lacks_them(tmp_path):
     gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=FakeLiveProvider())
 
     basic = gateway.get_stock_basic("002415")
 
-    assert "人工智能" in basic["concepts"]
-    assert "local_concepts" in {item["field"] for item in basic["missing_data"]}
+    assert basic["concepts"] == []
+    assert "local_concepts" not in {item["field"] for item in basic["missing_data"]}
 
 
-def test_gateway_merges_local_industry_when_live_basic_lacks_it(tmp_path):
+def test_gateway_does_not_invent_local_industry_when_live_basic_lacks_it(tmp_path):
     class NoIndustryProvider(FakeLiveProvider):
         def stock_basic(self, symbol):
             payload = super().stock_basic(symbol)
@@ -197,8 +197,8 @@ def test_gateway_merges_local_industry_when_live_basic_lacks_it(tmp_path):
 
     basic = gateway.get_stock_basic("002415")
 
-    assert basic["industry"] == "计算机设备"
-    assert "local_industry" in {item["field"] for item in basic["missing_data"]}
+    assert basic["industry"] == "未知行业"
+    assert "local_industry" not in {item["field"] for item in basic["missing_data"]}
 
 
 def test_gateway_uses_fallback_adapter_for_daily_bars_news_and_financials(tmp_path):

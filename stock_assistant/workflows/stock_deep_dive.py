@@ -129,7 +129,7 @@ class StockDeepDiveWorkflow:
         elif quote.get("source", "").startswith("a-stock-data"):
             missing_lines = f"- 已启用真实数据源：{quote['source']}；仍需注意不同数据源可能存在延迟或字段缺口"
         else:
-            missing_lines = "- 当前 MVP 使用部分样例/缓存数据，需接入实时 a-stock-data 后提升置信度"
+            missing_lines = "- 已启用真实数据或缓存；仍需注意不同数据源可能存在延迟或字段缺口"
         standard_extra = ""
         if mode != "quick":
             valuation = evidence["valuation"]

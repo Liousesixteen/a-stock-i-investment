@@ -47,7 +47,7 @@ def analyze(
     symbol: str,
     mode: str = typer.Option("standard", "--mode", "-m", help="quick / standard / deep"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="保存 Markdown 报告"),
-    live: bool = typer.Option(False, "--live", help="启用 a-stock-data 真实 HTTP 数据，失败时自动降级"),
+    live: bool = typer.Option(False, "--live", help="启用 a-stock-data 真实 HTTP 数据，失败时自动尝试真实备用源"),
 ) -> None:
     result = StockDeepDiveWorkflow(gateway=AStockDataGateway(use_live=live)).analyze(symbol, mode=mode)
     if output:

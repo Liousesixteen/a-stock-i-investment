@@ -22,6 +22,9 @@ DAILY_COLUMNS = [
 ]
 
 FRESH_FALLBACK_ENDPOINTS = {
+    "realtime_quote",
+    "stock_basic",
+    "index_bars",
     "daily_bars",
     "stock_news",
     "cls_news",
@@ -29,10 +32,16 @@ FRESH_FALLBACK_ENDPOINTS = {
     "financial_statements",
     "sector_performance",
     "concept_blocks",
+    "capital_flow_minute",
     "capital_flow_120d",
     "northbound_flow",
     "dragon_tiger",
+    "market_dragon_tiger",
     "lockup_calendar",
+    "margin_trading",
+    "block_trades",
+    "shareholder_count",
+    "dividend_history",
     "announcements",
 }
 
@@ -64,11 +73,11 @@ class MissingData:
     def _clean_reason(self, reason: str) -> str:
         text = str(reason).replace("\n", " ").strip()
         if "ProxyError" in text:
-            return "真实数据接口代理连接失败，已使用降级数据"
+            return "真实数据接口代理连接失败，已尝试真实备用源"
         if "EOF occurred in violation of protocol" in text or "_ssl" in text:
-            return "真实数据接口 SSL 连接失败，已使用降级数据"
+            return "真实数据接口 SSL 连接失败，已尝试真实备用源"
         if "Max retries exceeded" in text or "RemoteDisconnected" in text:
-            return "真实数据接口连接失败，已使用降级数据"
+            return "真实数据接口连接失败，已尝试真实备用源"
         if len(text) > 120:
             return text[:117] + "..."
         return text
@@ -77,8 +86,8 @@ class MissingData:
 class AStockDataGateway:
     """Single data boundary for analyzers.
 
-    MVP uses deterministic fallback data. Live integrations can be added behind
-    these methods without changing analyzers or workflows.
+    Returns real live data, real fallback data, cache, or explicit missing-data
+    placeholders. It must not invent synthetic market data.
     """
 
     def __init__(
@@ -118,53 +127,23 @@ class AStockDataGateway:
         if self.use_live and self.live_provider and hasattr(self.live_provider, "stock_basic"):
             try:
                 live_basic = self.live_provider.stock_basic(code)
-                fallback = self._sample_stock_basic(code)
-                if not live_basic.get("concepts") and fallback.get("concepts"):
-                    live_basic["concepts"] = fallback["concepts"]
-                    live_basic.setdefault("missing_data", []).append(
-                        MissingData("local_concepts", "真实概念标签缺失，使用本地标签补充").to_dict()
-                    )
-                if live_basic.get("industry") in ("", None, "未知行业") and fallback.get("industry"):
-                    live_basic["industry"] = fallback["industry"]
-                    live_basic.setdefault("missing_data", []).append(
-                        MissingData("local_industry", "真实行业标签缺失，使用本地标签补充").to_dict()
-                    )
                 self._write_cached_dict(f"stock_basic_{code}", live_basic, "stock_basic", live_basic.get("source", "a-stock-data"))
                 return live_basic
             except Exception:
                 pass
-        return self._sample_stock_basic(code)
-
-    def _sample_stock_basic(self, code: str) -> Dict[str, Any]:
-        samples = {
-            "002415": {
-                "symbol": code,
-                "name": "海康威视",
-                "industry": "计算机设备",
-                "concepts": ["人工智能", "安防", "机器人"],
-                "market": "深市",
-                "missing_data": [],
-            },
-            "603019": {
-                "symbol": code,
-                "name": "中科曙光",
-                "industry": "计算机设备",
-                "concepts": ["AI算力", "数据中心", "国产服务器"],
-                "market": "沪市",
-                "missing_data": [],
-            },
+        fallback = self._fallback_fetch("stock_basic", code)
+        if fallback.get("status") == "ok" and fallback.get("data") is not None:
+            basic = self._standardize_stock_basic(fallback["data"], code, self._fallback_provider_name(fallback))
+            self._write_cached_dict(f"stock_basic_{code}", basic, "stock_basic", basic.get("source", "fallback"))
+            return basic
+        return {
+            "symbol": code,
+            "name": code,
+            "industry": "",
+            "concepts": [],
+            "market": "",
+            "missing_data": [MissingData("stock_basic", "真实基础资料缺失").to_dict()],
         }
-        return samples.get(
-            code,
-            {
-                "symbol": code,
-                "name": code,
-                "industry": "未知行业",
-                "concepts": [],
-                "market": "未知市场",
-                "missing_data": [MissingData("stock_basic", "基础资料缺失").to_dict()],
-            },
-        )
 
     def get_realtime_quote(self, symbol: str) -> Dict[str, Any]:
         code = normalize_symbol(symbol)
@@ -180,51 +159,35 @@ class AStockDataGateway:
             except Exception as exc:
                 live_error = str(exc)
         basic = self.get_stock_basic(code)
-        if code == "002415":
-            quote = {
-                "symbol": code,
-                "name": basic["name"],
-                "price": 31.86,
-                "pct_chg": 1.24,
-                "open": 31.28,
-                "high": 32.15,
-                "low": 31.02,
-                "pre_close": 31.47,
-                "volume": 48230000,
-                "amount": 1539000000,
-                "turnover_rate": 0.52,
-                "pe_ttm": 21.4,
-                "pb": 2.88,
-                "market_cap": 293000000000,
-                "float_market_cap": 274000000000,
-                "limit_up": 34.62,
-                "limit_down": 28.32,
-                "source": "sample",
-                "missing_data": [],
-            }
+        fallback = self._fallback_fetch("realtime_quote", code)
+        if fallback.get("status") == "ok" and fallback.get("data") is not None:
+            quote = self._standardize_realtime_quote(fallback["data"], code, self._fallback_provider_name(fallback))
             if live_error:
-                quote["missing_data"].append(MissingData("live_quote", live_error).to_dict())
+                quote.setdefault("missing_data", []).append(MissingData("live_quote", live_error).to_dict())
             return quote
+        missing = [MissingData("realtime_quote", "真实实时行情缺失").to_dict()]
+        if live_error:
+            missing.append(MissingData("live_quote", live_error).to_dict())
         return {
             "symbol": code,
             "name": basic["name"],
-            "price": 10.0,
-            "pct_chg": 0.0,
-            "open": 10.0,
-            "high": 10.0,
-            "low": 10.0,
-            "pre_close": 10.0,
+            "price": None,
+            "pct_chg": None,
+            "open": None,
+            "high": None,
+            "low": None,
+            "pre_close": None,
             "volume": 0,
             "amount": 0,
-            "turnover_rate": 0.0,
+            "turnover_rate": None,
             "pe_ttm": None,
             "pb": None,
             "market_cap": None,
             "float_market_cap": None,
-            "limit_up": 11.0,
-            "limit_down": 9.0,
-            "source": "sample",
-            "missing_data": [MissingData("realtime_quote", "实时行情使用降级样例").to_dict()],
+            "limit_up": None,
+            "limit_down": None,
+            "source": "missing",
+            "missing_data": missing,
         }
 
     def get_daily_bars(
@@ -253,51 +216,31 @@ class AStockDataGateway:
                 frame = self._mark_fallback_frame(self._standardize_daily_bars(data), fallback)
                 self._write_cached_frame(f"daily_bars_{code}", frame, self._fallback_provider_name(fallback), ttl_key="daily_bars")
                 return frame
-        if code == "000000":
-            return pd.DataFrame(columns=DAILY_COLUMNS)
-        closes = [27.8, 28.1, 28.4, 28.0, 28.8, 29.4, 29.1, 29.8, 30.2, 30.6, 31.0, 31.6, 31.86]
-        rows: List[Dict[str, Any]] = []
-        for idx, close in enumerate(closes, start=1):
-            previous = closes[idx - 2] if idx > 1 else close
-            rows.append(
-                {
-                    "date": f"2026-05-{idx + 10:02d}",
-                    "open": round(close * 0.99, 2),
-                    "high": round(close * 1.025, 2),
-                    "low": round(close * 0.975, 2),
-                    "close": close,
-                    "volume": 25000000 + idx * 1800000,
-                    "amount": int((25000000 + idx * 1800000) * close),
-                    "turnover_rate": round(0.35 + idx * 0.02, 2),
-                    "pct_chg": round((close - previous) / previous * 100, 2) if previous else 0,
-                }
-            )
-        return pd.DataFrame(rows, columns=DAILY_COLUMNS)
+        return pd.DataFrame(columns=DAILY_COLUMNS)
 
     def get_index_bars(self, index_code: str, start: str | None = None, end: str | None = None) -> pd.DataFrame:
-        return pd.DataFrame(
-            [
-                {"date": "2026-05-22", "close": 3150, "pct_chg": 0.42, "amount": 890000000000},
-                {"date": "2026-05-25", "close": 3164, "pct_chg": 0.44, "amount": 920000000000},
-            ]
-        )
+        fallback = self._fallback_fetch("index_bars", "000000", index_symbol=index_code, start_date=start, end_date=end)
+        if fallback.get("status") == "ok" and isinstance(fallback.get("data"), pd.DataFrame) and not fallback["data"].empty:
+            return fallback["data"]
+        return pd.DataFrame(columns=["date", "close", "pct_chg", "amount"])
 
     def get_market_snapshot(self) -> Dict[str, Any]:
         cached = self._read_cached_dict("market_snapshot")
         if cached is not None:
             return cached
         indices = []
+        indices_source = "missing"
         if self.use_live and self.live_provider and hasattr(self.live_provider, "index_quotes"):
             try:
                 indices = self.live_provider.index_quotes()
+                if indices:
+                    indices_source = "a-stock-data"
             except Exception:
                 indices = []
         if not indices:
-            indices = [
-                {"name": "上证指数", "price": 3150, "pct_chg": 0.42, "amount": 890000000000},
-                {"name": "深证成指", "price": 9800, "pct_chg": 0.28, "amount": 920000000000},
-                {"name": "创业板指", "price": 1900, "pct_chg": 0.44, "amount": 420000000000},
-            ]
+            indices = self._fallback_index_quotes()
+            if indices:
+                indices_source = "fallback"
         northbound = self.get_northbound_flow()
         total_amount = sum(float(item.get("amount") or 0) for item in indices)
         summary = self._market_summary(indices, northbound)
@@ -308,7 +251,8 @@ class AStockDataGateway:
             "total_amount": total_amount,
             "summary": summary,
             "scenarios": scenarios,
-            "source": "a-stock-data" if self.use_live else "sample",
+            "source": indices_source,
+            "missing_data": [] if indices else [MissingData("market_snapshot", "真实指数快照缺失").to_dict()],
         }
         if self.use_live:
             self._write_cached_dict("market_snapshot", snapshot, "market_snapshot", snapshot["source"])
@@ -327,6 +271,8 @@ class AStockDataGateway:
         return {"net_inflow": net, "status": northbound.get("status", "净流入" if net > 0 else "净流出")}
 
     def _market_summary(self, indices: List[Dict[str, Any]], northbound: Dict[str, Any]) -> str:
+        if not indices:
+            return "指数快照缺失，无法判断大盘状态"
         pct_values = [self._to_float(item.get("pct_chg")) for item in indices]
         up_count = sum(1 for value in pct_values if value > 0)
         down_count = sum(1 for value in pct_values if value < 0)
@@ -346,6 +292,12 @@ class AStockDataGateway:
         return tone
 
     def _market_scenarios(self, indices: List[Dict[str, Any]], northbound: Dict[str, Any]) -> Dict[str, str]:
+        if not indices:
+            return {
+                "base": "指数快照缺失，先等待真实数据恢复",
+                "bull": "真实指数和量能恢复后再判断偏强情景",
+                "bear": "真实指数缺失时不扩大风险敞口",
+            }
         sh = next((item for item in indices if item.get("name") == "上证指数"), {})
         sh_price = self._to_float(sh.get("price"))
         north = self._standardize_northbound(northbound)
@@ -362,7 +314,10 @@ class AStockDataGateway:
             return cached
         failure = self._read_failure("sector_performance")
         if failure:
-            return self._sample_sector_performance(failure)
+            frame = pd.DataFrame(columns=["sector", "pct_chg", "amount", "strength"])
+            frame.attrs["missing_data"] = [MissingData("sector_performance", failure.get("reason", "真实板块接口冷却中")).to_dict()]
+            frame.attrs["source"] = "missing"
+            return frame
         if self.use_live and self.live_provider and hasattr(self.live_provider, "sector_performance"):
             try:
                 sectors = self.live_provider.sector_performance()
@@ -377,29 +332,19 @@ class AStockDataGateway:
             self._write_cached_frame("sector_performance", frame, self._fallback_provider_name(fallback))
             return frame
         self._write_failure("sector_performance", fallback.get("message", "sector source unavailable"))
-        return self._sample_sector_performance()
-
-    def _sample_sector_performance(self, failure: Dict[str, Any] | None = None) -> pd.DataFrame:
-        frame = pd.DataFrame(
-            [
-                {"sector": "计算机设备", "pct_chg": 1.8, "amount": 82000000000, "strength": "强于大盘"},
-                {"sector": "新能源", "pct_chg": 0.4, "amount": 64000000000, "strength": "中性"},
-                {"sector": "消费电子", "pct_chg": -0.3, "amount": 51000000000, "strength": "弱于大盘"},
-            ]
-        )
-        frame.attrs["source"] = "sample"
-        if failure:
-            frame.attrs["missing_data"] = [MissingData("sector_performance", failure.get("reason", "真实板块接口冷却中")).to_dict()]
+        frame = pd.DataFrame(columns=["sector", "pct_chg", "amount", "strength"])
+        frame.attrs["missing_data"] = [MissingData("sector_performance", fallback.get("message", "真实板块数据缺失")).to_dict()]
+        frame.attrs["source"] = "missing"
         return frame
 
     def get_concept_performance(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            [
-                {"concept": "AI算力", "pct_chg": 2.4, "heat": 76},
-                {"concept": "机器人", "pct_chg": 1.2, "heat": 63},
-                {"concept": "数据中心", "pct_chg": 1.7, "heat": 70},
-            ]
-        )
+        fallback = self._fallback_fetch("concept_blocks", "000000")
+        if fallback.get("status") == "ok" and isinstance(fallback.get("data"), pd.DataFrame) and not fallback["data"].empty:
+            return self._standardize_concept_performance(fallback["data"])
+        frame = pd.DataFrame(columns=["concept", "pct_chg", "heat"])
+        frame.attrs["missing_data"] = [MissingData("concept_blocks", fallback.get("message", "真实题材热度缺失")).to_dict()]
+        frame.attrs["source"] = "missing"
+        return frame
 
     def get_stock_valuation(self, symbol: str) -> Dict[str, Any]:
         quote = self.get_realtime_quote(symbol)
@@ -428,24 +373,13 @@ class AStockDataGateway:
                 self._write_failure(f"financial_snapshot_{code}", live_error)
         elif failure:
             live_error = failure.get("reason")
-        snapshot = {
-            "report_date": "2026Q1",
-            "revenue": 17800000000,
-            "revenue_yoy": 6.2,
-            "net_profit": 2300000000,
-            "net_profit_yoy": 8.1,
-            "gross_margin": 44.5,
-            "net_margin": 12.9,
-            "roe": 3.1,
-            "debt_ratio": 39.0,
-            "operating_cashflow": 1800000000,
-            "free_cashflow": 900000000,
-            "eps": 0.25,
-            "bps": 8.7,
-            "missing_data": [],
-        }
+        statements = self.get_financial_statements(code)
+        snapshot = self._snapshot_from_financial_statements(statements)
+        snapshot.setdefault("missing_data", [])
         if live_error:
             snapshot["missing_data"].append(MissingData("live_financial_snapshot", live_error).to_dict())
+        if snapshot.get("revenue_yoy") is None and snapshot.get("net_profit_yoy") is None:
+            snapshot["missing_data"].append(MissingData("financial_snapshot", "真实财务快照缺失").to_dict())
         return snapshot
 
     def get_financial_statements(self, symbol: str) -> Dict[str, Any]:
@@ -468,7 +402,7 @@ class AStockDataGateway:
         fallback = self._fallback_fetch("financial_statements", symbol)
         if fallback.get("status") == "ok":
             return {"fallback_provider": fallback.get("provider", self._fallback_provider_name(fallback)), "data": fallback.get("data"), "missing_data": []}
-        return {"missing_data": [MissingData("financial_statements", "MVP 未启用完整三表").to_dict()]}
+        return {"missing_data": [MissingData("financial_statements", "真实财务三表缺失").to_dict()]}
 
     def get_announcements(self, symbol: str, days: int = 30) -> List[Dict[str, Any]]:
         code = normalize_symbol(symbol)
@@ -491,10 +425,7 @@ class AStockDataGateway:
             if rows:
                 self._write_cached_list(f"announcements_{code}", rows, self._fallback_provider_name(fallback), "announcements")
                 return rows
-        row = {"symbol": code, "title": "近期无硬性利空样例公告", "announcement_type": "普通公告"}
-        if live_error:
-            row["missing_data"] = [MissingData("live_announcements", live_error).to_dict()]
-        return [row]
+        return [{"symbol": code, "title": "", "announcement_type": "", "missing_data": [MissingData("announcements", live_error or "真实公告缺失").to_dict()]}]
 
     def get_news(self, symbol: str, days: int = 7) -> List[Dict[str, Any]]:
         code = normalize_symbol(symbol)
@@ -520,18 +451,7 @@ class AStockDataGateway:
                     row["is_fallback"] = True
                 self._write_cached_list(f"stock_news_{code}", rows, self._fallback_provider_name(fallback), "stock_news")
                 return rows
-        if code == "603019":
-            row = {
-                "symbol": code,
-                "title": "AI算力需求增长带动服务器和数据中心基础设施关注",
-                "summary": "服务器 数据中心 AI算力",
-                "source": "sample",
-            }
-        else:
-            row = {"symbol": code, "title": "AI 与安防场景融合受到关注", "source": "sample"}
-        if live_error:
-            row["missing_data"] = [MissingData("live_news", live_error).to_dict()]
-        return [row]
+        return [{"symbol": code, "title": "", "source": "missing", "missing_data": [MissingData("stock_news", live_error or "真实个股新闻缺失").to_dict()]}]
 
     def get_market_news(self, page_size: int = 50) -> List[Dict[str, Any]]:
         cached = self._read_cached_list("market_news")
@@ -560,12 +480,12 @@ class AStockDataGateway:
             self._write_cached_list("market_news", rows, "market_news", "live_fallback")
         return rows
 
-    def _fallback_fetch(self, endpoint: str, symbol: str) -> Dict[str, Any]:
+    def _fallback_fetch(self, endpoint: str, symbol: str, **kwargs: Any) -> Dict[str, Any]:
         if endpoint not in FRESH_FALLBACK_ENDPOINTS:
             return {"status": "unsupported", "data": None, "message": f"fallback disabled for {endpoint}"}
         for adapter in self.fallback_adapters:
             try:
-                result = adapter.fetch(endpoint, symbol)
+                result = adapter.fetch(endpoint, symbol, **kwargs)
                 if result.get("status") == "ok":
                     result.setdefault("provider", adapter.__class__.__name__)
                     return result
@@ -645,6 +565,69 @@ class AStockDataGateway:
     def _write_failure(self, key: str, reason: str) -> None:
         self.cache.write(f"failure_{key}", {"reason": reason}, FAILURE_COOLDOWN_SECONDS, "failure")
 
+    def _standardize_stock_basic(self, data: Any, symbol: str, provider: str) -> Dict[str, Any]:
+        row = self._first_record(data)
+        name = row.get("name") or row.get("名称") or row.get("股票简称") or row.get("简称") or symbol
+        industry = row.get("industry") or row.get("行业") or row.get("所属行业") or ""
+        market = row.get("market") or row.get("市场") or ("沪市" if symbol.startswith(("6", "9")) else "深市" if symbol.startswith(("0", "3")) else "")
+        concepts = row.get("concepts") or row.get("概念") or []
+        if isinstance(concepts, str):
+            concepts = [item.strip() for item in concepts.replace("，", ",").split(",") if item.strip()]
+        return {
+            "symbol": normalize_symbol(symbol),
+            "name": name,
+            "industry": industry,
+            "concepts": concepts if isinstance(concepts, list) else [],
+            "market": market,
+            "source": provider,
+            "is_fallback": True,
+            "missing_data": [] if name != symbol else [MissingData("stock_basic_detail", "备用源仅获取到有限基础资料").to_dict()],
+        }
+
+    def _standardize_realtime_quote(self, data: Any, symbol: str, provider: str) -> Dict[str, Any]:
+        row = self._first_record(data)
+        basic = self.get_stock_basic(symbol)
+        return {
+            "symbol": normalize_symbol(symbol),
+            "name": row.get("name") or row.get("名称") or basic.get("name", symbol),
+            "price": self._value(row, "price", "最新价", "现价"),
+            "pct_chg": self._value(row, "pct_chg", "涨跌幅"),
+            "open": self._value(row, "open", "今开", "开盘"),
+            "high": self._value(row, "high", "最高"),
+            "low": self._value(row, "low", "最低"),
+            "pre_close": self._value(row, "pre_close", "昨收"),
+            "volume": self._value(row, "volume", "成交量"),
+            "amount": self._value(row, "amount", "成交额"),
+            "turnover_rate": self._value(row, "turnover_rate", "换手率"),
+            "pe_ttm": self._value(row, "pe_ttm", "市盈率-动态", "市盈率"),
+            "pb": self._value(row, "pb", "市净率"),
+            "market_cap": self._value(row, "market_cap", "总市值"),
+            "float_market_cap": self._value(row, "float_market_cap", "流通市值"),
+            "limit_up": self._value(row, "limit_up", "涨停"),
+            "limit_down": self._value(row, "limit_down", "跌停"),
+            "source": provider,
+            "is_fallback": True,
+            "missing_data": [],
+        }
+
+    def _fallback_index_quotes(self) -> List[Dict[str, Any]]:
+        mapping = [("上证指数", "000001"), ("深证成指", "399001"), ("创业板指", "399006")]
+        rows = []
+        for name, code in mapping:
+            bars = self.get_index_bars(code)
+            if bars.empty:
+                continue
+            latest = bars.iloc[-1]
+            rows.append(
+                {
+                    "name": name,
+                    "price": self._value(latest.to_dict(), "close", "收盘"),
+                    "pct_chg": self._value(latest.to_dict(), "pct_chg", "涨跌幅"),
+                    "amount": self._value(latest.to_dict(), "amount", "成交额"),
+                }
+            )
+        return rows
+
     def _standardize_daily_bars(self, data: pd.DataFrame) -> pd.DataFrame:
         df = data.copy()
         rename = {"日期": "date", "开盘": "open", "最高": "high", "最低": "low", "收盘": "close", "成交量": "volume", "成交额": "amount", "换手率": "turnover_rate", "涨跌幅": "pct_chg"}
@@ -675,6 +658,26 @@ class AStockDataGateway:
                 }
             )
         return normalized
+
+    def _standardize_concept_performance(self, data: pd.DataFrame) -> pd.DataFrame:
+        df = data.copy()
+        rename = {
+            "板块名称": "concept",
+            "名称": "concept",
+            "概念": "concept",
+            "涨跌幅": "pct_chg",
+            "最新价": "heat",
+        }
+        df = df.rename(columns=rename)
+        if "concept" not in df:
+            df["concept"] = ""
+        if "pct_chg" not in df:
+            df["pct_chg"] = 0
+        if "heat" not in df:
+            df["heat"] = 50
+        df["pct_chg"] = df["pct_chg"].apply(self._to_float)
+        df["heat"] = df["heat"].apply(self._to_float)
+        return df[["concept", "pct_chg", "heat"]]
 
     def _standardize_market_news(self, data: Any, default_source: str) -> List[Dict[str, Any]]:
         if isinstance(data, pd.DataFrame):
@@ -732,6 +735,46 @@ class AStockDataGateway:
             return float(value)
         except (TypeError, ValueError):
             return 0.0
+
+    def _value(self, row: Dict[str, Any], *keys: str) -> Any:
+        for key in keys:
+            if key in row and row[key] not in ("", "-", None):
+                return row[key]
+        return None
+
+    def _first_record(self, data: Any) -> Dict[str, Any]:
+        if isinstance(data, pd.DataFrame):
+            if data.empty:
+                return {}
+            return data.iloc[0].to_dict()
+        if isinstance(data, list):
+            return data[0] if data and isinstance(data[0], dict) else {}
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    def _snapshot_from_financial_statements(self, statements: Dict[str, Any]) -> Dict[str, Any]:
+        data = statements.get("data")
+        frame = data if isinstance(data, pd.DataFrame) else None
+        row = self._first_record(frame) if frame is not None else self._first_record(data)
+        return {
+            "report_date": row.get("日期") or row.get("报告期") or row.get("report_date"),
+            "revenue": row.get("营业收入") or row.get("revenue"),
+            "revenue_yoy": row.get("营业收入同比增长率") or row.get("revenue_yoy"),
+            "net_profit": row.get("净利润") or row.get("net_profit"),
+            "net_profit_yoy": row.get("净利润同比增长率") or row.get("net_profit_yoy"),
+            "gross_margin": row.get("销售毛利率") or row.get("gross_margin"),
+            "net_margin": row.get("销售净利率") or row.get("net_margin"),
+            "roe": row.get("净资产收益率") or row.get("roe"),
+            "debt_ratio": row.get("资产负债率") or row.get("debt_ratio"),
+            "operating_cashflow": row.get("经营活动产生的现金流量净额") or row.get("operating_cashflow"),
+            "free_cashflow": row.get("free_cashflow"),
+            "eps": row.get("每股收益") or row.get("eps"),
+            "bps": row.get("每股净资产") or row.get("bps"),
+            "source": statements.get("fallback_provider") or statements.get("source") or "missing",
+            "missing_data": statements.get("missing_data", []),
+        }
+
 
     def _standardize_announcements(self, data: Any, symbol: str, provider: str) -> List[Dict[str, Any]]:
         if isinstance(data, pd.DataFrame):
@@ -795,9 +838,6 @@ class AStockDataGateway:
                 self._write_failure(f"capital_flow_120d_{code}", live_error)
         elif failure:
             live_error = failure.get("reason")
-        fallback = pd.DataFrame(
-            [{"symbol": code, "date": "2026-05-25", "main_net_inflow": 86000000, "net_inflow_pct": 3.2}]
-        )
         fallback_result = self._fallback_fetch("capital_flow_120d", code) if not failure else {"status": "unavailable", "data": None}
         if fallback_result.get("status") == "ok" and isinstance(fallback_result.get("data"), pd.DataFrame) and not fallback_result["data"].empty:
             flow = fallback_result["data"].copy()
@@ -812,12 +852,11 @@ class AStockDataGateway:
             if "main_net_inflow" not in flow:
                 flow["main_net_inflow"] = 0
             return self._mark_fallback_frame(flow, fallback_result)
-        if live_error:
-            fallback.attrs["missing_data"] = [MissingData("live_capital_flow", live_error).to_dict()]
-            fallback.attrs["missing_data_fields"] = ["live_capital_flow"]
-            fallback.attrs["source"] = "sample"
-            fallback.attrs["is_fallback"] = True
-        return fallback
+        empty = pd.DataFrame(columns=["symbol", "date", "main_net_inflow", "net_inflow_pct"])
+        empty.attrs["missing_data"] = [MissingData("capital_flow_120d", live_error or "真实资金流缺失").to_dict()]
+        empty.attrs["missing_data_fields"] = ["capital_flow_120d"]
+        empty.attrs["source"] = "missing"
+        return empty
 
     def get_northbound_flow(self) -> Dict[str, Any]:
         if self.use_live and self.live_provider and hasattr(self.live_provider, "northbound_flow"):
@@ -830,7 +869,7 @@ class AStockDataGateway:
         fallback = self._fallback_fetch("northbound_flow", "000000")
         if fallback.get("status") == "ok":
             return {"source": self._fallback_provider_name(fallback), "data": fallback.get("data"), "status": "live_fallback"}
-        return {"net_inflow": 1200000000, "status": "温和流入"}
+        return {"net_inflow": None, "status": "缺失", "missing_data": [MissingData("northbound_flow", "真实北向资金缺失").to_dict()]}
 
     def get_dragon_tiger(self, symbol: str, days: int = 30) -> List[Dict[str, Any]]:
         if self.use_live and self.live_provider and hasattr(self.live_provider, "dragon_tiger"):

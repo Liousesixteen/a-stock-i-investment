@@ -168,7 +168,7 @@ class MarketSentimentAnalyzer:
         if not news:
             return {
                 "component": self._component("消息面", raw_score, weight, "未获取到真实市场新闻，消息面按中性但降低置信度"),
-                "factors": ["真实市场新闻缺失，未使用 sample 降级数据"],
+                "factors": ["真实市场新闻缺失，未使用虚构降级数据"],
                 "radar": radar,
                 "events": events,
                 "rumors": rumors,

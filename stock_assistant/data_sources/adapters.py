@@ -82,6 +82,7 @@ class AkShareAdapter:
             return {"provider": "akshare", "endpoint": endpoint, "status": "unavailable", "data": None, "message": "akshare not installed"}
         call_map: Dict[str, Callable[[], Any]] = {
             "realtime_quote": lambda: self._realtime_quote(symbol),
+            "stock_basic": lambda: self._stock_basic(symbol),
             "daily_bars": lambda: self._daily_bars(symbol),
             "index_bars": lambda: self._index_bars(symbol, **kwargs),
             "order_book": lambda: self._order_book(symbol),
@@ -129,6 +130,21 @@ class AkShareAdapter:
         if hasattr(self.akshare, "stock_news_em"):
             return self.akshare.stock_news_em(symbol=symbol)
         raise RuntimeError("akshare stock_news_em unavailable")
+
+    def _stock_basic(self, symbol: str) -> Any:
+        if hasattr(self.akshare, "stock_info_a_code_name"):
+            data = self.akshare.stock_info_a_code_name()
+            if hasattr(data, "loc") and "code" in data:
+                return data.loc[data["code"].astype(str) == symbol]
+            if hasattr(data, "loc") and "代码" in data:
+                return data.loc[data["代码"].astype(str) == symbol]
+            return data
+        if hasattr(self.akshare, "stock_zh_a_spot_em"):
+            data = self.akshare.stock_zh_a_spot_em()
+            if hasattr(data, "loc") and "代码" in data:
+                return data.loc[data["代码"].astype(str) == symbol]
+            return data
+        raise RuntimeError("akshare stock basic endpoint unavailable")
 
     def _cls_news(self, **kwargs: Any) -> Any:
         if hasattr(self.akshare, "stock_info_global_cls"):

@@ -11,15 +11,15 @@ def test_normalize_symbol_accepts_common_a_share_formats():
     assert gateway.normalize_symbol(" sh600519 ") == "600519"
 
 
-def test_gateway_returns_degraded_quote_when_provider_missing():
+def test_gateway_returns_missing_quote_when_provider_missing():
     gateway = AStockDataGateway(use_live=False)
 
     quote = gateway.get_realtime_quote("002415")
 
     assert quote["symbol"] == "002415"
     assert quote["name"]
-    assert quote["price"] > 0
-    assert quote["missing_data"] == []
+    assert quote["price"] is None
+    assert "realtime_quote" in {item["field"] for item in quote["missing_data"]}
 
 
 def test_gateway_marks_missing_daily_bars_without_crashing():
