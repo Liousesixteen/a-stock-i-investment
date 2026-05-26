@@ -8,6 +8,7 @@ from stock_assistant.cache import JsonCache
 from stock_assistant.data_gateway import AStockDataGateway
 from stock_assistant.storage.journal_store import JournalStore
 from stock_assistant.workflows.industry_research import IndustryResearchWorkflow
+from stock_assistant.workflows.market_sentiment import MarketSentimentWorkflow
 from stock_assistant.workflows.morning_brief import MorningBriefWorkflow
 from stock_assistant.workflows.portfolio_review import PortfolioReviewWorkflow
 from stock_assistant.workflows.stock_deep_dive import StockDeepDiveWorkflow
@@ -64,6 +65,11 @@ def morning(live: bool = typer.Option(False, "--live", help="启用真实数据�
 @app.command("close-review")
 def close_review(live: bool = typer.Option(False, "--live", help="启用真实数据源生成盘后复盘")) -> None:
     typer.echo(MorningBriefWorkflow(gateway=AStockDataGateway(use_live=live)).close_review())
+
+
+@app.command()
+def sentiment(live: bool = typer.Option(False, "--live", help="启用真实数据源生成市场情绪与消息面雷达")) -> None:
+    typer.echo(MarketSentimentWorkflow(gateway=AStockDataGateway(use_live=live)).render())
 
 
 @app.command()

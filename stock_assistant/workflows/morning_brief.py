@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from stock_assistant.analyzers.market_regime import MarketRegimeAnalyzer
+from stock_assistant.analyzers.market_sentiment import MarketSentimentAnalyzer
 from stock_assistant.data_gateway import AStockDataGateway
 
 
@@ -40,6 +41,8 @@ class MorningBriefWorkflow:
     def close_review(self) -> str:
         snapshot = self.gateway.get_market_snapshot() if hasattr(self.gateway, "get_market_snapshot") else None
         sectors = self.gateway.get_sector_performance().sort_values("pct_chg", ascending=False)
+        news = self.gateway.get_market_news() if hasattr(self.gateway, "get_market_news") else []
+        sentiment = MarketSentimentAnalyzer().analyze(snapshot or {}, sectors, news)
         strong_names = sectors.head(3)["sector"].tolist()
         weak_names = [name for name in sectors.tail(3)["sector"].tolist() if name not in strong_names]
         strong = "、".join(str(name) for name in strong_names) or "板块数据不足"
@@ -66,6 +69,12 @@ class MorningBriefWorkflow:
 
 - 北向资金：{north_text}
 - 主要指数合计成交额：{round(float(snapshot.get('total_amount', 0)) / 100000000, 1)} 亿
+
+## 市场情绪与消息面
+
+- 情绪评分：{sentiment['sentiment_score']}/100，{sentiment['level']}
+- 主要驱动：{"；".join(sentiment['factors'][:3]) if sentiment['factors'] else "暂无明显情绪驱动因子"}
+- 消息面：利好 {len(sentiment['news_radar'].get('利好', []))} 条，利空 {len(sentiment['news_radar'].get('利空', []))} 条，传闻/待验证 {len(sentiment.get('rumors', []))} 条
 
 ## 强弱板块
 

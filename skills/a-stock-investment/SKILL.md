@@ -29,6 +29,7 @@ After bootstrap, prefer the printed `CLI=...` path for all commands.
 Do not require exact trigger words. Infer the task from the user's intent, symbols, Chinese stock names, market context, holdings, risk language, or time references.
 
 - Broad market, “今天盘面”, “明天怎么看”, index走势, 盘后复盘: run `close-review --live`.
+- Market sentiment, 最新新闻, 利好利空, 小道消息, 外围/国内影响, risk appetite: run `sentiment --live`.
 - 盘前计划, 今日策略, 交易纪律: run `morning --live`.
 - Single stock code or stock name, 持仓诊断, 要不要买/卖/减仓: run `analyze SYMBOL --mode standard --live`.
 - 深度研究, 产业链, 研报/公告/知识图谱: run `analyze SYMBOL --mode deep --live`, and consider `knowledge ingest`.
@@ -54,6 +55,7 @@ Always make the answer useful for investment research, not automatic trading:
 
 ```bash
 $CLI close-review --live
+$CLI sentiment --live
 $CLI morning --live
 $CLI analyze 002415 --mode standard --live
 $CLI analyze 002415 --mode deep --live

@@ -138,7 +138,20 @@ def test_cli_close_review_outputs_required_sections():
     assert result.exit_code == 0
     assert "盘后复盘" in result.output
     assert "今日市场状态" in result.output
+    assert "市场情绪与消息面" in result.output
     assert "明日计划" in result.output
+
+
+def test_cli_sentiment_outputs_market_news_radar():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["sentiment"])
+
+    assert result.exit_code == 0
+    assert "A 股市场情绪与消息面雷达" in result.output
+    assert "情绪评分" in result.output
+    assert "最新消息雷达" in result.output
+    assert "小道消息/传闻" in result.output
 
 
 def test_close_review_uses_market_snapshot_when_available():
@@ -169,12 +182,19 @@ def test_close_review_uses_market_snapshot_when_available():
                 ]
             )
 
+        def get_market_news(self):
+            return [
+                {"title": "稳增长政策继续发力", "summary": "政策利好 稳增长"},
+                {"title": "外围市场波动加大", "summary": "外围利空"},
+            ]
+
     from stock_assistant.workflows.morning_brief import MorningBriefWorkflow
 
     output = MorningBriefWorkflow(gateway=SnapshotGateway()).close_review()
 
     assert "上证指数：4145.37（-0.17%）" in output
     assert "北向资金：净流出" in output
+    assert "情绪评分" in output
     assert "震荡分化" in output
 
 

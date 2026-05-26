@@ -41,6 +41,7 @@ CACHE_TTL_SECONDS = {
     "daily_bars": 300,
     "sector_performance": 300,
     "stock_news": 600,
+    "market_news": 600,
     "announcements": 86400,
     "capital_flow_120d": 300,
     "financial_snapshot": 86400,
@@ -530,6 +531,44 @@ class AStockDataGateway:
             row["missing_data"] = [MissingData("live_news", live_error).to_dict()]
         return [row]
 
+    def get_market_news(self, page_size: int = 50) -> List[Dict[str, Any]]:
+        cached = self._read_cached_list("market_news")
+        if cached is not None:
+            return cached
+        rows: List[Dict[str, Any]] = []
+        live_error = None
+        if self.use_live and self.live_provider:
+            try:
+                if hasattr(self.live_provider, "cls_news"):
+                    rows.extend(self._standardize_market_news(self.live_provider.cls_news(page_size=page_size), "cls"))
+                if hasattr(self.live_provider, "global_news"):
+                    rows.extend(self._standardize_market_news(self.live_provider.global_news(page_size=page_size), "eastmoney_global"))
+            except Exception as exc:
+                live_error = str(exc)
+        if rows:
+            self._write_cached_list("market_news", rows, "a-stock-data", "market_news")
+            return rows
+        sample = [
+            {
+                "title": "稳增长政策持续发力，市场关注财政和货币政策配合",
+                "summary": "国内政策 利好 稳增长 流动性",
+                "source": "sample",
+            },
+            {
+                "title": "外围市场波动加大，人民币汇率和美债利率仍需跟踪",
+                "summary": "外围 利空 汇率 美债",
+                "source": "sample",
+            },
+            {
+                "title": "市场传言部分题材存在短线催化，尚未获得权威确认",
+                "summary": "传闻 小道消息 未证实",
+                "source": "sample",
+            },
+        ]
+        if live_error:
+            sample[0]["missing_data"] = [MissingData("market_news", live_error).to_dict()]
+        return sample
+
     def _fallback_fetch(self, endpoint: str, symbol: str) -> Dict[str, Any]:
         if endpoint not in FRESH_FALLBACK_ENDPOINTS:
             return {"status": "unsupported", "data": None, "message": f"fallback disabled for {endpoint}"}
@@ -642,6 +681,32 @@ class AStockDataGateway:
                     "publish_time": row.get("publish_time") or row.get("发布时间") or "",
                     "url": row.get("url") or row.get("新闻链接") or "",
                     "raw_text": row.get("raw_text") or row.get("新闻内容") or "",
+                }
+            )
+        return normalized
+
+    def _standardize_market_news(self, data: Any, default_source: str) -> List[Dict[str, Any]]:
+        if isinstance(data, pd.DataFrame):
+            rows = data.to_dict("records")
+        elif isinstance(data, list):
+            rows = data
+        else:
+            rows = []
+        normalized = []
+        seen = set()
+        for row in rows:
+            title = row.get("title") or row.get("新闻标题") or row.get("标题") or row.get("brief") or ""
+            if not title or title in seen:
+                continue
+            seen.add(title)
+            normalized.append(
+                {
+                    "title": title,
+                    "summary": row.get("summary") or row.get("content") or row.get("新闻内容") or row.get("内容") or "",
+                    "source": row.get("source") or row.get("文章来源") or default_source,
+                    "publish_time": row.get("publish_time") or row.get("发布时间") or row.get("time") or "",
+                    "url": row.get("url") or row.get("新闻链接") or "",
+                    "raw_text": row.get("raw_text") or row.get("content") or row.get("新闻内容") or "",
                 }
             )
         return normalized
