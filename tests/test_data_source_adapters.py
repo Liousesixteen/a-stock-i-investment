@@ -104,6 +104,8 @@ def test_akshare_adapter_supports_market_and_signal_endpoints(monkeypatch):
         stock_lhb_stock_detail_em=lambda symbol, date, flag: record("lhb_stock", {"symbol": symbol, "flag": flag}),
         stock_lhb_detail_em=lambda start_date, end_date: record("lhb_market", {"start": start_date, "end": end_date}),
         stock_restricted_release_detail_em=lambda start_date, end_date: record("lockup", {"start": start_date, "end": end_date}),
+        stock_info_global_cls=lambda symbol="全部": record("cls_news", {"标题": "财联社快讯"}),
+        stock_info_global_futu=lambda: record("global_news", {"标题": "全球快讯"}),
     )
 
     monkeypatch.setattr("stock_assistant.data_sources.adapters.importlib.import_module", lambda name: fake_akshare)
@@ -119,7 +121,9 @@ def test_akshare_adapter_supports_market_and_signal_endpoints(monkeypatch):
     assert adapter.fetch("dragon_tiger", "002415", date="20260525")["status"] == "ok"
     assert adapter.fetch("market_dragon_tiger", "002415", start_date="20260501", end_date="20260525")["status"] == "ok"
     assert adapter.fetch("lockup_calendar", "002415", start_date="20260501", end_date="20260601")["status"] == "ok"
-    assert {"bid_ask", "industry", "concept", "northbound", "fund_flow", "market_flow", "lhb_stock", "lhb_market", "lockup"}.issubset(set(calls))
+    assert adapter.fetch("cls_news", "002415")["status"] == "ok"
+    assert adapter.fetch("global_news", "002415")["status"] == "ok"
+    assert {"bid_ask", "industry", "concept", "northbound", "fund_flow", "market_flow", "lhb_stock", "lhb_market", "lockup", "cls_news", "global_news"}.issubset(set(calls))
 
 
 def test_akshare_adapter_supports_capital_structure_endpoints(monkeypatch):

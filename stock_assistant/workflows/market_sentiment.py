@@ -34,6 +34,7 @@ class MarketSentimentWorkflow:
         good = self._render_items(radar.get("利好", []))
         bad = self._render_items(radar.get("利空", []))
         neutral = self._render_items(radar.get("中性/待验证", []))
+        events = self._render_events(result.get("events", []))
         rumors = self._render_items(result.get("rumors", []))
         return f"""# A 股市场情绪与消息面雷达
 
@@ -51,6 +52,10 @@ class MarketSentimentWorkflow:
 ## 多因子评分拆解
 
 {components}
+
+## 事件抽取
+
+{events}
 
 ## 最新消息雷达
 
@@ -87,3 +92,14 @@ class MarketSentimentWorkflow:
         if not items:
             return "- 暂无"
         return "\n".join(f"- {item}" for item in items[:limit])
+
+    def _render_events(self, events: List[Dict[str, Any]], limit: int = 8) -> str:
+        if not events:
+            return "- 暂无真实新闻事件"
+        lines = []
+        for item in events[:limit]:
+            lines.append(
+                f"- [{item.get('direction')}] {item.get('category')} / {item.get('scope')}："
+                f"{item.get('title')}（source={item.get('source_tier')}, confidence={item.get('confidence')}）"
+            )
+        return "\n".join(lines)

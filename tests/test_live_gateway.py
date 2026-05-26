@@ -249,6 +249,50 @@ def test_gateway_standardizes_announcement_fallback(tmp_path):
     assert announcements[0]["is_fallback"] is True
 
 
+def test_gateway_market_news_uses_real_fallback_without_sample(tmp_path):
+    class BrokenNewsProvider(FakeLiveProvider):
+        def cls_news(self, page_size=50):
+            raise RuntimeError("cls down")
+
+        def global_news(self, page_size=50):
+            return []
+
+    class NewsFallbackAdapter:
+        def fetch(self, endpoint, symbol="000000", **kwargs):
+            if endpoint == "cls_news":
+                return {
+                    "provider": "akshare",
+                    "status": "ok",
+                    "data": pd.DataFrame([{"标题": "降准释放流动性", "内容": "政策利好"}]),
+                    "message": "",
+                }
+            return {"provider": "akshare", "status": "unavailable", "data": None, "message": "no data"}
+
+    gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=BrokenNewsProvider(), fallback_adapters=[NewsFallbackAdapter()])
+
+    rows = gateway.get_market_news()
+
+    assert rows[0]["title"] == "降准释放流动性"
+    assert rows[0]["source"] == "akshare"
+
+
+def test_gateway_market_news_returns_empty_when_real_sources_fail(tmp_path):
+    class BrokenNewsProvider(FakeLiveProvider):
+        def cls_news(self, page_size=50):
+            raise RuntimeError("cls down")
+
+        def global_news(self, page_size=50):
+            raise RuntimeError("global down")
+
+    class EmptyFallbackAdapter:
+        def fetch(self, endpoint, symbol="000000", **kwargs):
+            return {"provider": "akshare", "status": "fail", "data": None, "message": "down"}
+
+    gateway = AStockDataGateway(cache=JsonCache(tmp_path), use_live=True, live_provider=BrokenNewsProvider(), fallback_adapters=[EmptyFallbackAdapter()])
+
+    assert gateway.get_market_news() == []
+
+
 def test_gateway_reuses_fresh_sector_cache(tmp_path):
     class CountingProvider(FakeLiveProvider):
         def __init__(self):

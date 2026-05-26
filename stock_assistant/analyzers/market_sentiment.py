@@ -21,6 +21,16 @@ NEGATIVE_KEYWORDS = {
 
 RUMOR_KEYWORDS = ["传闻", "网传", "小道消息", "未证实", "市场传言", "据传"]
 
+EVENT_RULES = [
+    ("国内政策", "全市场", ["降准", "降息", "稳增长", "活跃资本市场", "财政", "货币政策", "扩内需", "新质生产力"]),
+    ("宏观数据", "全市场", ["PMI", "CPI", "PPI", "社融", "信贷", "工业增加值", "消费", "出口", "地产"]),
+    ("资金流动性", "全市场", ["北向", "融资余额", "ETF", "成交额", "净投放", "逆回购", "MLF"]),
+    ("外围市场", "全市场", ["美股", "纳指", "标普", "美元", "人民币", "美债", "降息预期", "加息", "地缘", "制裁"]),
+    ("产业事件", "行业/主题", ["AI", "算力", "半导体", "机器人", "新能源", "医药", "订单", "中标", "涨价", "价格战"]),
+    ("监管/风险", "个股/行业", ["立案", "处罚", "问询函", "退市", "减持", "业绩预亏", "库存高企"]),
+    ("传闻待证", "待验证", RUMOR_KEYWORDS),
+]
+
 
 class MarketSentimentAnalyzer:
     def analyze(
@@ -55,6 +65,7 @@ class MarketSentimentAnalyzer:
             "components": components,
             "factors": factors,
             "news_radar": news_result["radar"],
+            "events": news_result["events"],
             "rumors": news_result["rumors"],
             "confidence": self._confidence(snapshot, sectors, news, concepts),
         }
@@ -151,11 +162,22 @@ class MarketSentimentAnalyzer:
         weight = 20.0
         radar = {"利好": [], "利空": [], "中性/待验证": []}
         rumors = []
+        events = []
         raw_score = weight / 2
         factors = []
+        if not news:
+            return {
+                "component": self._component("消息面", raw_score, weight, "未获取到真实市场新闻，消息面按中性但降低置信度"),
+                "factors": ["真实市场新闻缺失，未使用 sample 降级数据"],
+                "radar": radar,
+                "events": events,
+                "rumors": rumors,
+            }
         for item in news[:30]:
             text = " ".join(str(item.get(key, "")) for key in ("title", "summary", "content", "raw_text"))
             title = str(item.get("title") or item.get("summary") or "未命名消息")[:80]
+            event = self._extract_event(item, text, title)
+            events.append(event)
             if any(keyword in text for keyword in RUMOR_KEYWORDS):
                 rumors.append(title)
                 radar["中性/待验证"].append(title)
@@ -183,18 +205,70 @@ class MarketSentimentAnalyzer:
             "component": self._component("消息面", max(0, min(weight, raw_score)), weight, news_signal),
             "factors": factors,
             "radar": radar,
+            "events": events,
             "rumors": rumors,
+        }
+
+    def _extract_event(self, item: Dict[str, Any], text: str, title: str) -> Dict[str, Any]:
+        positive_tags = self._match_tags(text, POSITIVE_KEYWORDS)
+        negative_tags = self._match_tags(text, NEGATIVE_KEYWORDS)
+        category = "一般资讯"
+        scope = "待判断"
+        for matched_category, matched_scope, keywords in EVENT_RULES:
+            if any(keyword in text for keyword in keywords):
+                category = matched_category
+                scope = matched_scope
+                break
+        if any(keyword in text for keyword in RUMOR_KEYWORDS):
+            direction = "待验证"
+        elif positive_tags and not negative_tags:
+            direction = "利好"
+        elif negative_tags and not positive_tags:
+            direction = "利空"
+        elif positive_tags or negative_tags:
+            direction = "多空交织"
+        else:
+            direction = "中性"
+        source_tier = self._source_tier(item)
+        confidence = self._event_confidence(direction, source_tier)
+        return {
+            "title": title,
+            "category": category,
+            "scope": scope,
+            "direction": direction,
+            "source": item.get("source", ""),
+            "source_tier": source_tier,
+            "confidence": confidence,
+            "publish_time": item.get("publish_time") or item.get("time") or "",
         }
 
     def _news_weight(self, item: Dict[str, Any], tags: List[str]) -> float:
         source = str(item.get("source", "")).lower()
         source_weight = 1.0
-        if any(name in source for name in ["pbc", "csrc", "stats", "交易所", "官方"]):
+        if self._source_tier(item) == "official":
             source_weight = 1.8
-        elif any(name in source for name in ["cls", "eastmoney", "财联社", "东财"]):
+        elif self._source_tier(item) == "mainstream":
             source_weight = 1.2
         tag_weight = 1.4 if any("政策" in tag or "宏观" in tag or "外围" in tag for tag in tags) else 1.0
         return min(3.0, source_weight * tag_weight)
+
+    def _source_tier(self, item: Dict[str, Any]) -> str:
+        source = str(item.get("source", "")).lower()
+        text = " ".join(str(item.get(key, "")) for key in ("title", "summary", "content", "raw_text")).lower()
+        official_source_names = ["pbc", "csrc", "stats", "gov", "上交所", "深交所", "北交所", "国务院", "证监会", "统计局", "官方"]
+        official_text_names = ["中国人民银行", "证监会发布", "国家统计局", "国务院新闻办公室", "上交所发布", "深交所发布", "北交所发布"]
+        mainstream_names = ["cls", "eastmoney", "futu", "sina", "ths", "财联社", "东财", "富途", "新浪", "同花顺", "央视"]
+        if any(name in source for name in official_source_names) or any(name in text for name in official_text_names):
+            return "official"
+        if any(name in source or name in text for name in mainstream_names):
+            return "mainstream"
+        return "unknown"
+
+    def _event_confidence(self, direction: str, source_tier: str) -> float:
+        if direction == "待验证":
+            return 0.25
+        base = {"official": 0.9, "mainstream": 0.72, "unknown": 0.5}.get(source_tier, 0.5)
+        return base
 
     def _match_tags(self, text: str, groups: Dict[str, List[str]]) -> List[str]:
         return [tag for tag, keywords in groups.items() if any(keyword in text for keyword in keywords)]

@@ -99,6 +99,8 @@ class AkShareAdapter:
             "dividend_history": lambda: self._dividend_history(symbol),
             "financial_statements": lambda: self._financial_indicators(symbol),
             "stock_news": lambda: self._stock_news(symbol),
+            "cls_news": lambda: self._cls_news(**kwargs),
+            "global_news": lambda: self._global_news(**kwargs),
             "announcements": lambda: self._announcements(symbol, **kwargs),
         }
         if endpoint not in call_map:
@@ -127,6 +129,19 @@ class AkShareAdapter:
         if hasattr(self.akshare, "stock_news_em"):
             return self.akshare.stock_news_em(symbol=symbol)
         raise RuntimeError("akshare stock_news_em unavailable")
+
+    def _cls_news(self, **kwargs: Any) -> Any:
+        if hasattr(self.akshare, "stock_info_global_cls"):
+            return self.akshare.stock_info_global_cls(symbol=kwargs.get("symbol", "全部"))
+        raise RuntimeError("akshare stock_info_global_cls unavailable")
+
+    def _global_news(self, **kwargs: Any) -> Any:
+        for name in ("stock_info_global_futu", "stock_info_global_ths", "stock_info_global_sina", "stock_info_global_em"):
+            if hasattr(self.akshare, name):
+                data = getattr(self.akshare, name)()
+                if data is not None and (not hasattr(data, "empty") or not data.empty):
+                    return data
+        raise RuntimeError("akshare global news endpoints unavailable")
 
     def _realtime_quote(self, symbol: str) -> Any:
         self._require("stock_zh_a_spot_em")

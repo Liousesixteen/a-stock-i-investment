@@ -151,6 +151,7 @@ def test_cli_sentiment_outputs_market_news_radar():
     assert "A 股市场情绪与消息面雷达" in result.output
     assert "情绪评分" in result.output
     assert "多因子评分拆解" in result.output
+    assert "事件抽取" in result.output
     assert "最新消息雷达" in result.output
     assert "小道消息/传闻" in result.output
 

@@ -24,6 +24,8 @@ DAILY_COLUMNS = [
 FRESH_FALLBACK_ENDPOINTS = {
     "daily_bars",
     "stock_news",
+    "cls_news",
+    "global_news",
     "financial_statements",
     "sector_performance",
     "concept_blocks",
@@ -536,38 +538,27 @@ class AStockDataGateway:
         if cached is not None:
             return cached
         rows: List[Dict[str, Any]] = []
-        live_error = None
         if self.use_live and self.live_provider:
-            try:
-                if hasattr(self.live_provider, "cls_news"):
+            if hasattr(self.live_provider, "cls_news"):
+                try:
                     rows.extend(self._standardize_market_news(self.live_provider.cls_news(page_size=page_size), "cls"))
-                if hasattr(self.live_provider, "global_news"):
+                except Exception:
+                    pass
+            if hasattr(self.live_provider, "global_news"):
+                try:
                     rows.extend(self._standardize_market_news(self.live_provider.global_news(page_size=page_size), "eastmoney_global"))
-            except Exception as exc:
-                live_error = str(exc)
+                except Exception:
+                    pass
         if rows:
             self._write_cached_list("market_news", rows, "a-stock-data", "market_news")
             return rows
-        sample = [
-            {
-                "title": "稳增长政策持续发力，市场关注财政和货币政策配合",
-                "summary": "国内政策 利好 稳增长 流动性",
-                "source": "sample",
-            },
-            {
-                "title": "外围市场波动加大，人民币汇率和美债利率仍需跟踪",
-                "summary": "外围 利空 汇率 美债",
-                "source": "sample",
-            },
-            {
-                "title": "市场传言部分题材存在短线催化，尚未获得权威确认",
-                "summary": "传闻 小道消息 未证实",
-                "source": "sample",
-            },
-        ]
-        if live_error:
-            sample[0]["missing_data"] = [MissingData("market_news", live_error).to_dict()]
-        return sample
+        for endpoint in ("cls_news", "global_news"):
+            fallback = self._fallback_fetch(endpoint, "000000")
+            if fallback.get("status") == "ok" and fallback.get("data") is not None:
+                rows.extend(self._standardize_market_news(fallback["data"], self._fallback_provider_name(fallback)))
+        if rows:
+            self._write_cached_list("market_news", rows, "market_news", "live_fallback")
+        return rows
 
     def _fallback_fetch(self, endpoint: str, symbol: str) -> Dict[str, Any]:
         if endpoint not in FRESH_FALLBACK_ENDPOINTS:
