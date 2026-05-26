@@ -26,6 +26,32 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
 
+### 安装为 Skill
+
+如果希望智能体在用户自然提问时自动调用这个项目，可以安装统一 Skill 入口：
+
+```bash
+./scripts/install_skill.sh
+```
+
+安装后会复制到：
+
+```text
+~/.agents/skills/a-stock-investment/
+```
+
+这个 Skill 的触发不是靠死板关键词，而是靠 `SKILL.md` frontmatter 里的语义描述。用户可以直接问：
+
+```text
+今天 A 股盘面怎么样，明天大盘怎么看？
+我手里有 002415，要不要减仓？
+算力方向还能追吗？
+帮我看看最近公告和研报有没有风险点。
+数据源是不是正常，今天拿到的是实时数据吗？
+```
+
+智能体会根据问题意图自动选择盘后复盘、个股分析、行业研究、知识库入库或数据源健康检查。用户不需要手动切换模式；只有在需要强制指定深度时，才建议说“quick / standard / deep”或“快速看 / 标准分析 / 深度研究”。
+
 可选配置：
 
 ```bash
@@ -40,6 +66,8 @@ export IWENCAI_BASE_URL="https://openapi.iwencai.com"
 ```
 
 ## 常用命令
+
+CLI 是 command-line interface，也就是命令行接口。它是 Skill 背后的稳定执行层：智能体可以调用它获取实时数据、生成报告、检查数据源；开发者也可以直接在终端运行同样的命令来复现结果、排查问题和做自动化测试。
 
 ### 盘后复盘
 
